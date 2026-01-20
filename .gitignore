@@ -2,4 +2,4 @@
 *.pyc
 .DS_Store
 
-simons_heir_mvp/results/
+results/
