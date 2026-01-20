@@ -60,7 +60,7 @@ class LlamaInterface:
         """Initialize LlamaInterface.
         
         Args:
-            model_name: Name of the Ollama model (default: llama3.1:8b).
+            model_name: Name of the Ollama model (default: nemotron-3-nano).
             endpoint: Ollama API endpoint URL.
             timeout: Request timeout in seconds.
             max_retries: Maximum retry attempts on failure.
