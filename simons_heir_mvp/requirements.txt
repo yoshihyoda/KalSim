@@ -1,0 +1,22 @@
+# Simons' Heir MVP - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# HTTP requests (for Ollama API)
+requests>=2.31.0
+
+# Visualization
+matplotlib>=3.7.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Type checking (development)
+# mypy>=1.4.0
+# types-requests>=2.31.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+

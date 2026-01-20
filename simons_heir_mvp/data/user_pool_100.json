@@ -1,0 +1,242 @@
+[
+  {
+    "id": 0,
+    "name": "DiamondHandsDave",
+    "personality_traits": ["risk-seeking", "impulsive", "optimistic", "community-focused"],
+    "interests": ["stocks", "crypto", "reddit", "gaming"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 1523, "influence_score": 0.72}
+  },
+  {
+    "id": 1,
+    "name": "CautiousCarla",
+    "personality_traits": ["cautious", "analytical", "skeptical", "patient"],
+    "interests": ["finance", "economics", "data analysis"],
+    "beliefs": {
+      "risk_tolerance": "low",
+      "market_outlook": "neutral",
+      "trust_in_institutions": "moderate"
+    },
+    "social": {"follower_count": 892, "influence_score": 0.45}
+  },
+  {
+    "id": 2,
+    "name": "MoonBoi_Mike",
+    "personality_traits": ["emotional", "reactive", "enthusiastic", "social"],
+    "interests": ["memes", "trading", "WSB", "crypto"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 5234, "influence_score": 0.85}
+  },
+  {
+    "id": 3,
+    "name": "PaperHandsPete",
+    "personality_traits": ["anxious", "reactive", "risk-averse", "trend-following"],
+    "interests": ["stocks", "news", "social media"],
+    "beliefs": {
+      "risk_tolerance": "low",
+      "market_outlook": "bearish",
+      "trust_in_institutions": "high"
+    },
+    "social": {"follower_count": 234, "influence_score": 0.15}
+  },
+  {
+    "id": 4,
+    "name": "ApeStrong_Amy",
+    "personality_traits": ["stubborn", "community-focused", "loyal", "optimistic"],
+    "interests": ["reddit", "gaming", "retail investing", "memes"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 3421, "influence_score": 0.78}
+  },
+  {
+    "id": 5,
+    "name": "QuantQuinn",
+    "personality_traits": ["analytical", "data-driven", "contrarian", "patient"],
+    "interests": ["quantitative finance", "algorithms", "statistics"],
+    "beliefs": {
+      "risk_tolerance": "moderate",
+      "market_outlook": "neutral",
+      "trust_in_institutions": "moderate"
+    },
+    "social": {"follower_count": 1876, "influence_score": 0.62}
+  },
+  {
+    "id": 6,
+    "name": "YOLO_Yolanda",
+    "personality_traits": ["impulsive", "risk-seeking", "enthusiastic", "social"],
+    "interests": ["options trading", "WSB", "crypto", "stocks"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 8923, "influence_score": 0.91}
+  },
+  {
+    "id": 7,
+    "name": "BoomerBob",
+    "personality_traits": ["conservative", "skeptical", "traditional", "patient"],
+    "interests": ["value investing", "dividends", "bonds"],
+    "beliefs": {
+      "risk_tolerance": "low",
+      "market_outlook": "neutral",
+      "trust_in_institutions": "high"
+    },
+    "social": {"follower_count": 543, "influence_score": 0.28}
+  },
+  {
+    "id": 8,
+    "name": "TendiesTina",
+    "personality_traits": ["optimistic", "community-focused", "humorous", "loyal"],
+    "interests": ["memes", "WSB", "fast food", "gaming"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 4567, "influence_score": 0.82}
+  },
+  {
+    "id": 9,
+    "name": "ShorterSam",
+    "personality_traits": ["contrarian", "analytical", "risk-tolerant", "independent"],
+    "interests": ["short selling", "hedge funds", "market analysis"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bearish",
+      "trust_in_institutions": "high"
+    },
+    "social": {"follower_count": 2134, "influence_score": 0.55}
+  },
+  {
+    "id": 10,
+    "name": "RetailRebecca",
+    "personality_traits": ["determined", "community-focused", "passionate", "stubborn"],
+    "interests": ["retail investing", "reddit", "GameStop", "activism"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 6789, "influence_score": 0.88}
+  },
+  {
+    "id": 11,
+    "name": "FOMOFrank",
+    "personality_traits": ["anxious", "trend-following", "impulsive", "social"],
+    "interests": ["trending stocks", "social media", "crypto"],
+    "beliefs": {
+      "risk_tolerance": "moderate",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "moderate"
+    },
+    "social": {"follower_count": 1234, "influence_score": 0.48}
+  },
+  {
+    "id": 12,
+    "name": "LurkerLisa",
+    "personality_traits": ["observant", "cautious", "analytical", "introverted"],
+    "interests": ["reading DD", "market research", "lurking"],
+    "beliefs": {
+      "risk_tolerance": "low",
+      "market_outlook": "neutral",
+      "trust_in_institutions": "moderate"
+    },
+    "social": {"follower_count": 45, "influence_score": 0.05}
+  },
+  {
+    "id": 13,
+    "name": "MemeLordMax",
+    "personality_traits": ["creative", "humorous", "social", "trend-setting"],
+    "interests": ["memes", "viral content", "WSB culture"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 15234, "influence_score": 0.95}
+  },
+  {
+    "id": 14,
+    "name": "DueDiligenceDan",
+    "personality_traits": ["thorough", "analytical", "patient", "helpful"],
+    "interests": ["research", "financial analysis", "teaching"],
+    "beliefs": {
+      "risk_tolerance": "moderate",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 7654, "influence_score": 0.87}
+  },
+  {
+    "id": 15,
+    "name": "NewbieNick",
+    "personality_traits": ["curious", "impressionable", "eager", "uncertain"],
+    "interests": ["learning investing", "social media", "getting rich"],
+    "beliefs": {
+      "risk_tolerance": "moderate",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "moderate"
+    },
+    "social": {"follower_count": 89, "influence_score": 0.12}
+  },
+  {
+    "id": 16,
+    "name": "WhaleBetsWanda",
+    "personality_traits": ["confident", "risk-seeking", "influential", "bold"],
+    "interests": ["large positions", "options", "market moving"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 23456, "influence_score": 0.98}
+  },
+  {
+    "id": 17,
+    "name": "SkepticalSteve",
+    "personality_traits": ["skeptical", "analytical", "cautious", "contrarian"],
+    "interests": ["market manipulation", "SEC regulations", "fraud detection"],
+    "beliefs": {
+      "risk_tolerance": "low",
+      "market_outlook": "bearish",
+      "trust_in_institutions": "moderate"
+    },
+    "social": {"follower_count": 2345, "influence_score": 0.58}
+  },
+  {
+    "id": 18,
+    "name": "HypeBeastHarry",
+    "personality_traits": ["excitable", "social", "trend-following", "loud"],
+    "interests": ["hype stocks", "social media", "crypto", "NFTs"],
+    "beliefs": {
+      "risk_tolerance": "high",
+      "market_outlook": "bullish",
+      "trust_in_institutions": "low"
+    },
+    "social": {"follower_count": 9876, "influence_score": 0.89}
+  },
+  {
+    "id": 19,
+    "name": "ValueVicky",
+    "personality_traits": ["patient", "analytical", "traditional", "disciplined"],
+    "interests": ["value investing", "fundamentals", "long-term holding"],
+    "beliefs": {
+      "risk_tolerance": "moderate",
+      "market_outlook": "neutral",
+      "trust_in_institutions": "high"
+    },
+    "social": {"follower_count": 1567, "influence_score": 0.52}
+  }
+]
