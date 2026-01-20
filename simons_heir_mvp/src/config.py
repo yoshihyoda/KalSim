@@ -12,9 +12,11 @@ DATA_DIR: Final[Path] = PROJECT_ROOT / "data"
 RESULTS_DIR: Final[Path] = PROJECT_ROOT / "results"
 SRC_DIR: Final[Path] = PROJECT_ROOT / "src"
 
-# Data files
-PERSONA_FILE: Final[Path] = DATA_DIR / "user_pool_100.json"
-TWEETS_FILE: Final[Path] = DATA_DIR / "gamestop_tweets.csv"
+# Data files (DEPRECATED: Use live data sources instead)
+# These paths are kept for backward compatibility but are no longer used by default.
+# The simulation now prioritizes SocioVerse/Kalshi live data.
+PERSONA_FILE: Final[Path] = DATA_DIR / "user_pool_100.json"  # Deprecated
+TWEETS_FILE: Final[Path] = DATA_DIR / "gamestop_tweets.csv"  # Deprecated
 
 # Result files
 SIMULATION_LOG_FILE: Final[Path] = RESULTS_DIR / "simulation_log.json"

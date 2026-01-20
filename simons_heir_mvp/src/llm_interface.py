@@ -18,6 +18,7 @@ from .config import (
     LLM_MAX_RETRIES,
     LLM_DEFAULT_TEMPERATURE,
 )
+from .interfaces import LLMInterfaceABC
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class LlamaResponseError(LlamaInterfaceError):
     pass
 
 
-class LlamaInterface:
+class LlamaInterface(LLMInterfaceABC):
     """Interface for communicating with Llama model via Ollama API.
     
     Handles request/response cycle with retry logic and error handling.

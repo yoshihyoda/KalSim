@@ -9,10 +9,12 @@ import os
 import random
 from typing import Any
 
+from .interfaces import UserPoolProviderABC
+
 logger = logging.getLogger(__name__)
 
 
-class SocioVerseConnector:
+class SocioVerseConnector(UserPoolProviderABC):
     """Fetches user personas from HuggingFace SocioVerse dataset.
     
     The SocioVerse dataset contains 10M+ real-world user profiles with

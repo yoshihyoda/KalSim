@@ -8,6 +8,8 @@ import logging
 import requests
 from typing import Any, Final
 
+from .interfaces import MarketDataProviderABC
+
 logger = logging.getLogger(__name__)
 
 # Kalshi public API endpoints (public market data + exchange status)
@@ -18,7 +20,7 @@ KALSHI_EXCHANGE_STATUS_URL: Final[str] = (
 )
 
 
-class KalshiClient:
+class KalshiClient(MarketDataProviderABC):
     """Client for interacting with Kalshi public API."""
     
     def __init__(self):
