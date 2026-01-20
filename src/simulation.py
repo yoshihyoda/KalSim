@@ -102,6 +102,7 @@ class Simulation:
         self._current_step_index = 0
         self._price_history: list[float] = [self.BASE_PRICE]
         self._community_sentiment = 0.0
+        self._current_volume = 0
         
         self._kalshi_client: MarketDataProviderABC | None = market_provider
         self._kalshi_analysis: dict[str, Any] | None = None
@@ -205,13 +206,68 @@ class Simulation:
         self._update_community_sentiment(step_actions)
     
     def _update_market_state(self, step: int) -> None:
-        """Update simulated market conditions.
+        """Update market conditions from live Kalshi data or formula fallback.
+        
+        Args:
+            step: Current step number for price trajectory.
+        """
+        if self.use_kalshi and self._kalshi_client:
+            live_updated = self._try_live_market_update()
+            if live_updated:
+                return
+        
+        self._update_market_state_formula(step)
+
+    def _try_live_market_update(self) -> bool:
+        """Attempt to update market state from live Kalshi data.
+        
+        Returns:
+            True if live update succeeded, False to fall back to formula.
+        """
+        try:
+            markets = self._kalshi_client.get_public_markets(limit=50)
+            if not markets:
+                logger.debug("No markets returned from Kalshi API, using formula")
+                return False
+            
+            target_market = next(
+                (m for m in markets if m.get("ticker") == self.market_topic),
+                None
+            )
+            
+            if not target_market:
+                logger.debug(
+                    "Market %s not found in Kalshi response, using formula",
+                    self.market_topic
+                )
+                return False
+            
+            yes_price = target_market.get("yes_price")
+            if yes_price is None:
+                return False
+            
+            self._current_price = yes_price * 100
+            self._current_volume = target_market.get("volume_24h", 0)
+            self._price_history.append(self._current_price)
+            
+            logger.debug(
+                "Live market update for %s: Price=$%.2f",
+                self.market_topic,
+                self._current_price
+            )
+            return True
+            
+        except Exception as e:
+            logger.warning("Live market update failed: %s", e)
+            return False
+
+    def _update_market_state_formula(self, step: int) -> None:
+        """Update market state using formula-based model.
         
         Args:
             step: Current step number for price trajectory.
         """
         day = step // STEPS_PER_DAY
-        hour_of_day = step % STEPS_PER_DAY
         
         base_multiplier = 1.0
         if day < 3:

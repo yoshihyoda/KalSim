@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.simulation import Simulation
+from src.interfaces import MarketDataProviderABC
 
 
 class TestSimulationPersonaLoading:
@@ -235,6 +236,122 @@ class TestTryLoadSocioverse:
             result = sim._try_load_socioverse()
         
         assert result is None
+
+
+class TestUpdateMarketStateLive:
+    """Tests for live market state updates via Kalshi API."""
+
+    def test_update_market_state_calls_kalshi_when_live(self):
+        """Test that _update_market_state calls Kalshi API when use_kalshi is True."""
+        mock_client = MagicMock(spec=MarketDataProviderABC)
+        mock_client.get_public_markets.return_value = [
+            {"ticker": "TEST-MKT", "yes_price": 0.55, "volume_24h": 12345}
+        ]
+        mock_client.get_trending_events.return_value = []
+        mock_client.analyze_trends.return_value = {"topics": [], "summary": ""}
+        
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=True,
+            market_provider=mock_client,
+            market_topic="TEST-MKT",
+        )
+        sim.setup()
+        
+        sim._update_market_state(step=1)
+        
+        mock_client.get_public_markets.assert_called()
+        assert sim._current_price == pytest.approx(55.0)
+
+    def test_update_market_state_updates_price_history(self):
+        """Test that live updates append to price history."""
+        mock_client = MagicMock(spec=MarketDataProviderABC)
+        mock_client.get_public_markets.return_value = [
+            {"ticker": "TEST-MKT", "yes_price": 0.65, "volume_24h": 5000}
+        ]
+        mock_client.get_trending_events.return_value = []
+        mock_client.analyze_trends.return_value = {"topics": [], "summary": ""}
+        
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=True,
+            market_provider=mock_client,
+            market_topic="TEST-MKT",
+        )
+        sim.setup()
+        initial_history_len = len(sim._price_history)
+        
+        sim._update_market_state(step=1)
+        
+        assert len(sim._price_history) == initial_history_len + 1
+        assert sim._price_history[-1] == pytest.approx(65.0)
+
+    def test_update_market_state_falls_back_when_market_not_found(self):
+        """Test fallback to formula when target market not in response."""
+        mock_client = MagicMock(spec=MarketDataProviderABC)
+        mock_client.get_public_markets.return_value = [
+            {"ticker": "OTHER-MKT", "yes_price": 0.80, "volume_24h": 1000}
+        ]
+        mock_client.get_trending_events.return_value = []
+        mock_client.analyze_trends.return_value = {"topics": [], "summary": ""}
+        
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=True,
+            market_provider=mock_client,
+            market_topic="TEST-MKT",
+        )
+        sim.setup()
+        initial_price = sim._current_price
+        
+        sim._update_market_state(step=1)
+        
+        assert sim._current_price != 80.0
+        assert sim._current_price != initial_price
+
+    def test_update_market_state_falls_back_on_empty_response(self):
+        """Test fallback to formula when API returns empty list."""
+        mock_client = MagicMock(spec=MarketDataProviderABC)
+        mock_client.get_public_markets.return_value = []
+        mock_client.get_trending_events.return_value = []
+        mock_client.analyze_trends.return_value = {"topics": [], "summary": ""}
+        
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=True,
+            market_provider=mock_client,
+            market_topic="TEST-MKT",
+        )
+        sim.setup()
+        initial_price = sim._current_price
+        
+        sim._update_market_state(step=1)
+        
+        assert sim._current_price != initial_price
+
+    def test_update_market_state_uses_formula_when_kalshi_disabled(self):
+        """Test that formula is used when use_kalshi is False."""
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=False,
+        )
+        sim.setup()
+        initial_price = sim._current_price
+        
+        sim._update_market_state(step=1)
+        
+        assert sim._current_price != initial_price
+        assert sim._kalshi_client is None
 
 
 class TestTryGenerateFromKalshi:
