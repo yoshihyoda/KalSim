@@ -28,3 +28,7 @@ pytest>=7.4.0
 pytest-mock>=3.11.0
 pytest-cov>=4.1.0
 
+# HuggingFace datasets (SocioVerse integration)
+datasets>=2.15.0
+huggingface-hub>=0.20.0
+
