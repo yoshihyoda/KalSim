@@ -50,9 +50,10 @@ state = SimulationState()
 class SimulationConfig(BaseModel):
     agents: int = AGENTS_COUNT
     days: int = SIMULATION_DAYS
-    mock_mode: bool = True
-    use_kalshi: bool = False
+    mock_mode: bool = False  # Default to live LLM inference
+    use_kalshi: bool = True  # Default to real Kalshi data
     custom_agents: Optional[List[Dict[str, Any]]] = None
+    market_topic: Optional[str] = None  # Selected market topic (e.g., "US climate goals")
 
 class SimulationStatus(BaseModel):
     is_running: bool
@@ -79,6 +80,7 @@ def simulation_worker(config: SimulationConfig):
             mock_llm=config.mock_mode,
             custom_agents=config.custom_agents,
             use_kalshi=config.use_kalshi or not config.mock_mode,
+            market_topic=config.market_topic,
         )
         state.simulation = sim
         
@@ -156,9 +158,24 @@ async def generate_kalshi_agents(payload: KalshiAgentsRequest):
             raise HTTPException(status_code=404, detail="Event not found")
 
         summary = kalshi.summarize_event(event)
-        llm = LlamaInterface()
-        generator = AgentGenerator(llm)
-        agents = generator.generate_agents(summary, count=payload.count)
+        
+        # Try SocioVerse first for real user data
+        agents = []
+        try:
+            from .socioverse_connector import SocioVerseConnector
+            connector = SocioVerseConnector()
+            agents = connector.fetch_user_pool(count=payload.count)
+            if agents:
+                logger.info(f"Loaded {len(agents)} personas from SocioVerse for market: {payload.event_ticker}")
+        except Exception as e:
+            logger.warning(f"SocioVerse fetch failed: {e}")
+        
+        # Fallback to LLM generation if SocioVerse unavailable
+        if not agents:
+            llm = LlamaInterface()
+            generator = AgentGenerator(llm)
+            agents = generator.generate_agents(summary, count=payload.count)
+            logger.info(f"Generated {len(agents)} personas via LLM for market: {payload.event_ticker}")
 
         return {
             "event_ticker": payload.event_ticker,

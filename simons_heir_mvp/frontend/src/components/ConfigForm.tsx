@@ -71,6 +71,7 @@ export const ConfigForm: React.FC<ConfigFormProps> = ({
       ...config,
       use_kalshi: kalshiData !== null,
       custom_agents: generatedAgents.length > 0 ? generatedAgents : undefined,
+      market_topic: selectedMarketTitle || undefined,
     });
   };
 
@@ -407,13 +408,21 @@ export const ConfigForm: React.FC<ConfigFormProps> = ({
 
                       {!generatingAgents &&
                         visibleAgents.map((agent: any, i: number) => {
-                          const view = agent?.beliefs?.view || "Neutral";
+                          // Support both LLM-generated (view) and SocioVerse (market_outlook) formats
+                          const outlook = agent?.beliefs?.view || agent?.beliefs?.market_outlook || "neutral";
+                          const view = outlook.charAt(0).toUpperCase() + outlook.slice(1).toLowerCase();
                           const viewColor =
                             view === "Bullish"
                               ? "text-emerald-400"
                               : view === "Bearish"
                                 ? "text-rose-400"
                                 : "text-gray-400";
+                          
+                          // Get display name and initial (handle numeric SocioVerse IDs)
+                          const displayName = String(agent?.name || `User_${i}`);
+                          const initial = displayName.match(/[a-zA-Z]/) 
+                            ? displayName.match(/[a-zA-Z]/)?.[0]?.toUpperCase() 
+                            : displayName[0] || "?";
 
                           return (
                             <div
@@ -423,12 +432,10 @@ export const ConfigForm: React.FC<ConfigFormProps> = ({
                               <div className="flex justify-between items-start mb-2">
                                 <div className="flex items-center gap-2">
                                   <div className="w-6 h-6 rounded-full bg-linear-to-br from-gray-700 to-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-300 border border-gray-600">
-                                    {agent?.name
-                                      ? agent.name[0].toUpperCase()
-                                      : "?"}
+                                    {initial}
                                   </div>
                                   <span className="text-xs font-bold text-white group-hover:text-emerald-300 transition-colors">
-                                    @{agent?.name}
+                                    @{displayName}
                                   </span>
                                 </div>
                                 <span

@@ -8,6 +8,7 @@ export interface SimulationConfig {
   mock_mode: boolean;
   use_kalshi?: boolean;
   custom_agents?: any[];
+  market_topic?: string;
 }
 
 export interface KalshiAnalysisResponse {
