@@ -20,3 +20,6 @@ tqdm>=4.65.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 
+# Network modeling
+networkx>=3.1
+
