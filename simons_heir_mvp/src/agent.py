@@ -10,11 +10,15 @@ from datetime import datetime
 from typing import Any
 
 from .llm_interface import LlamaInterface
+from .core.behavior_engine import BehaviorEngine
+from .prompt_builder import PromptBuilder
 from .layers.layer1_neurobiology import NeurobiologyModule, NeurobiologicalState
 from .layers.layer2_cognition import CognitionModule, CognitiveBiases
 from .layers.layer3_emotion import EmotionModule, EmotionState
 from .layers.layer4_social_interaction import SocialInteractionModule
 from .layers.layer5_collective_identity import IdentityModule, IdentityState, IdentityGroup
+from .layers.layer6_network_structure import NetworkStructureModule
+from .layers.layer7_market_structure import MarketStructureModule
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +133,26 @@ class Agent:
         self._emotion_module = EmotionModule()
         self._social_module = SocialInteractionModule()
         self._identity_module = IdentityModule()
+        self._network_module = NetworkStructureModule()
+        self._market_module = MarketStructureModule()
+        
+        self.behavior_engine = BehaviorEngine()
+        self._register_layers()
         
         self.state = AgentState()
+        self._last_layer_outputs: dict[str, Any] = {}
         
         self.state.identity = self._identity_module.assign_identity(persona)
+    
+    def _register_layers(self) -> None:
+        """Register all 7 layers with the behavior engine in order."""
+        self.behavior_engine.register_layer(self._neuro_module)
+        self.behavior_engine.register_layer(self._cognition_module)
+        self.behavior_engine.register_layer(self._emotion_module)
+        self.behavior_engine.register_layer(self._social_module)
+        self.behavior_engine.register_layer(self._identity_module)
+        self.behavior_engine.register_layer(self._network_module)
+        self.behavior_engine.register_layer(self._market_module)
     
     @property
     def name(self) -> str:
@@ -168,12 +188,16 @@ class Agent:
         self,
         market_info: MarketInfo | None,
         social_media_info: SocialMediaInfo | None,
+        auto_update_layers: bool = True,
     ) -> None:
         """Observe and internalize market and social media information.
+        
+        Automatically triggers the full 7-layer pipeline to update internal state.
         
         Args:
             market_info: Current market state, or None if unavailable.
             social_media_info: Current social media environment, or None.
+            auto_update_layers: Whether to automatically run layer pipeline (default: True).
         """
         if market_info:
             self._current_timestamp = market_info.timestamp
@@ -198,6 +222,9 @@ class Agent:
         
         self._add_memory("observation", observation)
         logger.debug(f"Agent {self.agent_id} observed: {observation}")
+        
+        if auto_update_layers:
+            self.update_layer_states(market_info, social_media_info)
 
     def update_layer_states(
         self,
@@ -206,7 +233,7 @@ class Agent:
     ) -> None:
         """Update all layer states based on observations.
         
-        This runs the full 7-layer pipeline to update internal state.
+        This runs the full 7-layer pipeline via BehaviorEngine to update internal state.
         
         Args:
             market_info: Market information.
@@ -215,8 +242,10 @@ class Agent:
         market_state = {}
         if market_info:
             market_state = {
+                "price": market_info.stock_price,
                 "price_change_pct": market_info.price_change_pct,
                 "trend": market_info.trend,
+                "volume": market_info.volume,
                 "volatility": abs(market_info.price_change_pct) / 100,
             }
         
@@ -224,32 +253,13 @@ class Agent:
         if social_media_info:
             social_state = {
                 "sentiment": social_media_info.sentiment_score,
+                "trending_topics": social_media_info.trending_topics,
                 "viral_posts": [],
+                "neighbors": [],
+                "connection_strengths": {},
+                "consensus_strength": abs(social_media_info.sentiment_score),
+                "dominant_group": "WSB" if social_media_info.sentiment_score > 0.5 else "",
             }
-        
-        neuro_input = {
-            "agent": {
-                "neuro_state": {
-                    "fomo_level": self.state.neurobiological.fomo_level,
-                    "dopamine_response": self.state.neurobiological.dopamine_response,
-                    "stress_level": self.state.neurobiological.stress_level,
-                    "reward_sensitivity": self.state.neurobiological.reward_sensitivity,
-                    "habituation": self.state.neurobiological.habituation,
-                },
-                "portfolio": {},
-            },
-            "market": market_state,
-            "social": social_state,
-        }
-        neuro_output = self._neuro_module.process(neuro_input)
-        
-        self.state.neurobiological = NeurobiologicalState(
-            fomo_level=neuro_output.get("fomo_level", 0.0),
-            dopamine_response=neuro_output.get("dopamine_response", 0.5),
-            stress_level=neuro_output.get("stress_level", 0.0),
-            reward_sensitivity=neuro_output.get("reward_sensitivity", 0.5),
-            habituation=neuro_output.get("habituation", 0.0),
-        )
         
         stimulus_type = None
         stimulus_intensity = 0.0
@@ -261,49 +271,56 @@ class Agent:
                 stimulus_type = "market_crash"
                 stimulus_intensity = min(abs(market_info.price_change_pct) / 50, 1.0)
         
-        emotion_input = {
-            "agent": {
-                "emotion": {
-                    "valence": self.state.emotional.valence,
-                    "arousal": self.state.emotional.arousal,
-                },
+        agent_state = {
+            "id": self.agent_id,
+            "persona": self.persona,
+            "beliefs": self.persona.get("beliefs", {}),
+            "neuro_state": {
+                "fomo_level": self.state.neurobiological.fomo_level,
+                "dopamine_response": self.state.neurobiological.dopamine_response,
+                "stress_level": self.state.neurobiological.stress_level,
+                "reward_sensitivity": self.state.neurobiological.reward_sensitivity,
+                "habituation": self.state.neurobiological.habituation,
             },
-            "stimulus": {
+            "emotion": {
+                "valence": self.state.emotional.valence,
+                "arousal": self.state.emotional.arousal,
+            },
+            "portfolio": {},
+        }
+        
+        if stimulus_type:
+            social_state["stimulus"] = {
                 "type": stimulus_type,
                 "intensity": stimulus_intensity,
-            } if stimulus_type else {},
-        }
-        emotion_output = self._emotion_module.process(emotion_input)
+            }
         
-        self.state.emotional = EmotionState(
-            valence=emotion_output.get("valence", 0.0),
-            arousal=emotion_output.get("arousal", 0.5),
-            dominant_emotion=emotion_output.get("dominant_emotion", "neutral"),
-            intensity=emotion_output.get("emotion_intensity", 0.5),
+        layer_outputs = self.behavior_engine.process(
+            agent_state=agent_state,
+            market_state=market_state,
+            social_state=social_state,
         )
         
-        cognition_input = {
-            "agent": {
-                "beliefs": self.persona.get("beliefs", {}),
-            },
-            "social": {
-                "consensus_view": "bullish" if social_state.get("sentiment", 0) > 0.3 else "neutral",
-                "consensus_strength": abs(social_state.get("sentiment", 0)),
-                "peer_count": 50,
-            },
-            "market": market_state,
-            "information": {},
-        }
-        self._cognition_module.process(cognition_input)
+        self._last_layer_outputs = layer_outputs
         
-        identity_output = self._identity_module.process({
-            "agent": {"persona": self.persona},
-            "social": {"dominant_group": "WSB" if social_state.get("sentiment", 0) > 0.5 else ""},
-        })
+        self.state.neurobiological = NeurobiologicalState(
+            fomo_level=layer_outputs.get("fomo_level", self.state.neurobiological.fomo_level),
+            dopamine_response=layer_outputs.get("dopamine_response", self.state.neurobiological.dopamine_response),
+            stress_level=layer_outputs.get("stress_level", self.state.neurobiological.stress_level),
+            reward_sensitivity=layer_outputs.get("reward_sensitivity", self.state.neurobiological.reward_sensitivity),
+            habituation=layer_outputs.get("habituation", self.state.neurobiological.habituation),
+        )
         
-        self.state.social_pressure = 0.0
-        self.state.herding_detected = False
-        self.state.viral_exposure = False
+        self.state.emotional = EmotionState(
+            valence=layer_outputs.get("valence", self.state.emotional.valence),
+            arousal=layer_outputs.get("arousal", self.state.emotional.arousal),
+            dominant_emotion=layer_outputs.get("dominant_emotion", self.state.emotional.dominant_emotion),
+            intensity=layer_outputs.get("emotion_intensity", self.state.emotional.intensity),
+        )
+        
+        self.state.social_pressure = layer_outputs.get("social_pressure", 0.0)
+        self.state.herding_detected = layer_outputs.get("herding_detected", False)
+        self.state.viral_exposure = layer_outputs.get("viral_exposure", False)
     
     def decide(self, llm_interface: LlamaInterface) -> str:
         """Make a decision using LLM with layer-informed context.
@@ -356,7 +373,7 @@ class Agent:
         return result
     
     def _build_decision_prompt(self) -> str:
-        """Build the prompt with layer-informed context.
+        """Build the prompt with layer-informed context using PromptBuilder.
         
         Returns:
             Formatted prompt string including psychological state.
@@ -364,32 +381,37 @@ class Agent:
         recent_memories = self._get_recent_memories(5)
         memory_context = self._format_memories(recent_memories)
         
-        layer_context = self._build_layer_context()
+        agent_state = self._get_agent_state_for_prompt()
         
-        prompt = f"""You are simulating a social media user discussing prediction markets.
-
-TOPIC: {self.market_topic}
-
-CHARACTER PROFILE:
-- Name: {self.name}
-- {self.personality_summary}
-- Identity Group: {self.identity_group}
-
-PSYCHOLOGICAL STATE:
-{layer_context}
-
-RECENT CONTEXT:
-{memory_context}
-
-Based on your character, psychological state, and the current situation, decide what to do next.
-Choose ONE action and provide your response in this exact format:
-
-ACTION: [TWEET/HOLD/LURK]
-CONTENT: [If TWEET, write a short post (max 280 chars) about "{self.market_topic}". If HOLD or LURK, briefly explain why.]
-
-Remember to stay in character and let your psychological state influence your decision."""
-
-        return prompt
+        builder = PromptBuilder(
+            agent_state=agent_state,
+            layer_outputs=self._last_layer_outputs,
+        )
+        
+        return builder.build_decision_prompt(
+            market_topic=self.market_topic,
+            recent_context=memory_context,
+        )
+    
+    def _get_agent_state_for_prompt(self) -> dict[str, Any]:
+        """Get agent state formatted for PromptBuilder.
+        
+        Returns:
+            Dictionary with agent state for prompt building.
+        """
+        identity_state = None
+        if self.state.identity:
+            identity_state = {
+                "primary_group": self.state.identity.primary_group.name,
+                "group_identification": self.state.identity.group_identification,
+            }
+        
+        return {
+            "name": self.name,
+            "personality_summary": self.personality_summary,
+            "identity_group": self.identity_group,
+            "identity_state": identity_state,
+        }
     
     def _build_layer_context(self) -> str:
         """Build context string from layer states.
