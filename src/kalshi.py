@@ -5,6 +5,7 @@ to identify trending topics for the simulation.
 """
 
 import logging
+import time
 import requests
 from typing import Any, Final
 
@@ -25,6 +26,8 @@ class KalshiClient(MarketDataProviderABC):
     
     def __init__(self):
         self.session = requests.Session()
+        self._market_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
+        self._cache_expiry_seconds: int = 30
 
     def get_exchange_status(self) -> dict[str, Any] | None:
         """Fetch exchange status (maintenance/trading availability)."""
@@ -46,7 +49,7 @@ class KalshiClient(MarketDataProviderABC):
         status: str | None = "open",
         check_exchange_status: bool = True,
     ) -> list[dict[str, Any]]:
-        """Fetch open markets from Kalshi.
+        """Fetch open markets from Kalshi with caching.
         
         Args:
             limit: Maximum number of markets to return.
@@ -56,6 +59,15 @@ class KalshiClient(MarketDataProviderABC):
         Returns:
             List of market dictionaries.
         """
+        cache_key = f"public_markets_{limit}_{status}"
+        now = time.time()
+        
+        if cache_key in self._market_cache:
+            cached_data, timestamp = self._market_cache[cache_key]
+            if (now - timestamp) < self._cache_expiry_seconds:
+                logger.debug("Returning cached market data for key: %s", cache_key)
+                return cached_data
+        
         try:
             if check_exchange_status:
                 exchange_status = self.get_exchange_status()
@@ -74,16 +86,12 @@ class KalshiClient(MarketDataProviderABC):
                             "Trading inactive; market data may be stale or limited."
                         )
 
-            # Fetch open markets, sorted by volume or open interest implicitly by default or query
-            # For this MVP, we'll fetch a batch and sort client-side by volume if available, 
-            # or just take the default list which usually contains active/popular markets.
-            params = {
+            params: dict[str, Any] = {
                 "limit": 100  # Fetch more to filter
             }
             if status:
                 normalized = status.strip().lower()
                 if normalized == "active":
-                    # Kalshi's API uses "open" for active markets.
                     normalized = "open"
                 allowed_statuses = {"unopened", "open", "closed", "settled"}
                 if normalized not in allowed_statuses:
@@ -97,9 +105,6 @@ class KalshiClient(MarketDataProviderABC):
             data = response.json()
             markets = data.get("markets", [])
             
-            # Sort by volume (approximate trendiness)
-            # calculated as volume or open interest if available
-            # API v2 usually returns 'volume' or 'recent_volume' field
             markets_sorted = sorted(
                 markets, 
                 key=lambda m: (
@@ -111,7 +116,9 @@ class KalshiClient(MarketDataProviderABC):
                 reverse=True
             )
             
-            return markets_sorted[:limit]
+            result = markets_sorted[:limit]
+            self._market_cache[cache_key] = (result, now)
+            return result
             
         except requests.RequestException as e:
             logger.error(f"Failed to fetch Kalshi markets: {e}")

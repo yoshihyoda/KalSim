@@ -46,6 +46,23 @@ class MarketDataProviderABC(ABC):
     """Abstract interface for market data providers."""
 
     @abstractmethod
+    def get_public_markets(
+        self,
+        limit: int = 20,
+        status: str | None = "open",
+    ) -> list[dict[str, Any]]:
+        """Fetch public markets.
+
+        Args:
+            limit: Maximum number of markets to return.
+            status: Optional status filter.
+
+        Returns:
+            List of market dictionaries.
+        """
+        pass
+
+    @abstractmethod
     def get_trending_events(
         self,
         limit: int = 20,

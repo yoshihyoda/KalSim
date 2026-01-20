@@ -38,10 +38,16 @@ class MockLLMProvider(LLMInterfaceABC):
 class MockMarketProvider(MarketDataProviderABC):
     """Mock market data provider for testing."""
     
-    def __init__(self, events: list[dict] | None = None):
+    def __init__(self, events: list[dict] | None = None, markets: list[dict] | None = None):
         self.events = events or [
             {"title": "Test Market", "event_ticker": "TEST", "markets": []}
         ]
+        self.markets = markets or [
+            {"ticker": "TEST-MKT", "yes_price": 0.50, "volume_24h": 1000}
+        ]
+    
+    def get_public_markets(self, limit: int = 20, status: str | None = "open") -> list[dict]:
+        return self.markets[:limit]
     
     def get_trending_events(self, limit: int = 20, status: str | None = "open") -> list[dict]:
         return self.events[:limit]
