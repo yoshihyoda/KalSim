@@ -24,6 +24,7 @@ from .config import (
     ensure_directories,
 )
 from .llm_interface import LlamaInterface
+from .kalshi import KalshiClient
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class Simulation:
         tweets_file: Path = TWEETS_FILE,
         mock_llm: bool = False,
         custom_agents: list[dict[str, Any]] | None = None,
+        use_kalshi: bool = False,
     ) -> None:
         """Initialize the simulation.
         
@@ -67,6 +69,7 @@ class Simulation:
             tweets_file: Path to tweets CSV file.
             mock_llm: Whether to run in mock mode.
             custom_agents: Optional personas to use instead of file/defaults.
+            use_kalshi: Whether to use real Kalshi market data.
         """
         ensure_directories()
         
@@ -76,6 +79,7 @@ class Simulation:
         self.tweets_file = tweets_file
         self.mock_llm = mock_llm
         self.custom_agents = custom_agents or []
+        self.use_kalshi = use_kalshi or not mock_llm
         
         self.agents: list[Agent] = []
         self.llm: LlamaInterface | None = None
@@ -89,8 +93,16 @@ class Simulation:
         self._price_history: list[float] = [self.BASE_PRICE]
         self._community_sentiment = 0.0
         
+        self._kalshi_client: KalshiClient | None = None
+        self._kalshi_analysis: dict[str, Any] | None = None
+        
+        if self.use_kalshi:
+            self._kalshi_client = KalshiClient()
+            logger.info("Kalshi client initialized for real market data")
+        
         logger.info(
-            f"Simulation initialized: {days} days, {agent_count} agents"
+            f"Simulation initialized: {days} days, {agent_count} agents, "
+            f"mock_llm={mock_llm}, use_kalshi={self.use_kalshi}"
         )
     
     def setup(self) -> None:
@@ -98,6 +110,9 @@ class Simulation:
         logger.info("Setting up simulation...")
         
         self.llm = LlamaInterface(mock_mode=self.mock_llm)
+        
+        if self.use_kalshi and self._kalshi_client:
+            self._load_kalshi_trends()
         if not self.llm.health_check():
             logger.warning(
                 "Ollama not responding. Ensure 'ollama serve' is running."
@@ -232,13 +247,31 @@ class Simulation:
             trend=trend,
         )
     
+    def _load_kalshi_trends(self) -> None:
+        """Load trending topics from Kalshi API."""
+        if not self._kalshi_client:
+            return
+        
+        try:
+            events = self._kalshi_client.get_trending_events(limit=10)
+            self._kalshi_analysis = self._kalshi_client.analyze_trends(events)
+            topics = self._kalshi_analysis.get("topics", [])
+            logger.info(f"Loaded {len(topics)} trending topics from Kalshi")
+        except Exception as e:
+            logger.warning(f"Failed to load Kalshi trends: {e}")
+            self._kalshi_analysis = None
+
     def _get_social_info(self) -> SocialMediaInfo:
         """Get current social media environment.
         
         Returns:
             SocialMediaInfo with current social context.
         """
-        trending = ["$GME", "GameStop", "WallStreetBets"]
+        if self.use_kalshi and self._kalshi_analysis:
+            kalshi_topics = self._kalshi_analysis.get("topics", [])[:5]
+            trending = kalshi_topics if kalshi_topics else ["$GME", "GameStop", "WallStreetBets"]
+        else:
+            trending = ["$GME", "GameStop", "WallStreetBets"]
         
         if self._community_sentiment > 0.3:
             trending.extend(["diamondhands", "tothemoon", "HOLD"])

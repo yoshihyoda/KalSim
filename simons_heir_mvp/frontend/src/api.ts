@@ -6,6 +6,7 @@ export interface SimulationConfig {
   agents: number;
   days: number;
   mock_mode: boolean;
+  use_kalshi?: boolean;
   custom_agents?: any[];
 }
 

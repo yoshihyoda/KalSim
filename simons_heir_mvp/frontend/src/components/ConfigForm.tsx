@@ -69,6 +69,7 @@ export const ConfigForm: React.FC<ConfigFormProps> = ({
     e.preventDefault();
     onStart({
       ...config,
+      use_kalshi: kalshiData !== null,
       custom_agents: generatedAgents.length > 0 ? generatedAgents : undefined,
     });
   };

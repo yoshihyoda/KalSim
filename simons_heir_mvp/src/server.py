@@ -51,6 +51,7 @@ class SimulationConfig(BaseModel):
     agents: int = AGENTS_COUNT
     days: int = SIMULATION_DAYS
     mock_mode: bool = True
+    use_kalshi: bool = False
     custom_agents: Optional[List[Dict[str, Any]]] = None
 
 class SimulationStatus(BaseModel):
@@ -76,7 +77,8 @@ def simulation_worker(config: SimulationConfig):
             days=config.days,
             agent_count=config.agents,
             mock_llm=config.mock_mode,
-            custom_agents=config.custom_agents
+            custom_agents=config.custom_agents,
+            use_kalshi=config.use_kalshi or not config.mock_mode,
         )
         state.simulation = sim
         
