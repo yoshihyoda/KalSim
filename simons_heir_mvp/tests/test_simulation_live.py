@@ -68,28 +68,30 @@ class TestSimulationPersonaLoading:
         assert personas[0]["name"] == "KalshiAgent"
 
     @patch("src.simulation.Simulation._try_load_socioverse")
-    def test_priority_4_file_fallback(self, mock_socioverse, tmp_path):
-        """Test file fallback when live sources fail."""
-        mock_socioverse.return_value = None
+    def test_priority_4_default_generation(self, mock_socioverse):
+        """Test default persona generation when live sources fail.
         
-        persona_file = tmp_path / "personas.json"
-        persona_file.write_text('[{"id": 0, "name": "FileAgent"}]')
+        Note: Static file loading has been deprecated. The simulation now
+        falls back to generated defaults when live sources are unavailable.
+        """
+        mock_socioverse.return_value = None
         
         sim = Simulation(
             days=1,
             agent_count=1,
             mock_llm=True,
             use_kalshi=True,
-            persona_file=persona_file,
         )
         sim._kalshi_analysis = None
         
         personas = sim._load_personas()
         
-        assert personas[0]["name"] == "FileAgent"
+        assert len(personas) == 1
+        assert "name" in personas[0]
+        assert personas[0]["name"].startswith("User_")
 
     @patch("src.simulation.Simulation._try_load_socioverse")
-    def test_priority_5_default_generation(self, mock_socioverse):
+    def test_default_generation_respects_agent_count(self, mock_socioverse):
         """Test default persona generation as last resort."""
         mock_socioverse.return_value = None
         
@@ -159,29 +161,23 @@ class TestSimulationSeedTweets:
         assert any("What do you think" in c for c in content)
         assert any("bullish" in c for c in content)
 
-    def test_fallback_to_file_when_no_kalshi(self, tmp_path):
-        """Test falls back to file when Kalshi unavailable."""
-        import csv
+    def test_fallback_to_generated_when_no_kalshi(self):
+        """Test falls back to generated content when Kalshi unavailable.
         
-        tweets_file = tmp_path / "tweets.csv"
-        with open(tweets_file, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["text"])
-            writer.writeheader()
-            writer.writerow({"text": "File tweet 1"})
-            writer.writerow({"text": "File tweet 2"})
-        
+        Note: Static file loading has been deprecated. The simulation now
+        generates sample content when live sources are unavailable.
+        """
         sim = Simulation(
             days=1,
             agent_count=1,
             mock_llm=True,
             use_kalshi=False,
-            tweets_file=tweets_file,
         )
         
         tweets = sim._load_seed_tweets()
         
-        assert "File tweet 1" in tweets
-        assert "File tweet 2" in tweets
+        assert len(tweets) > 0
+        assert any("GME" in t for t in tweets)
 
     def test_fallback_to_generated_when_no_file(self):
         """Test falls back to generated when no file."""
