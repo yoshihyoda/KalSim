@@ -26,6 +26,8 @@ from .config import (
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 logger = logging.getLogger("simons_heir_server")
 
 # Global State
