@@ -167,6 +167,7 @@ class Simulation:
         
         for agent in active_agents:
             agent.observe(market_info, social_info)
+            agent.update_layer_states(market_info, social_info)
             
             decision = agent.decide(self.llm)
             
