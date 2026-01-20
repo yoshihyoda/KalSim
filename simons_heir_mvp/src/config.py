@@ -29,7 +29,7 @@ STEPS_PER_DAY: Final[int] = 24 // TIME_STEP_HOURS
 # Ollama LLM configuration
 OLLAMA_HOST: Final[str] = "localhost"
 OLLAMA_PORT: Final[int] = 11434
-OLLAMA_MODEL: Final[str] = "nemotron-3-nano"
+OLLAMA_MODEL: Final[str] = "llama3.1:8b"
 OLLAMA_BASE_URL: Final[str] = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
 OLLAMA_GENERATE_ENDPOINT: Final[str] = f"{OLLAMA_BASE_URL}/api/generate"
 
