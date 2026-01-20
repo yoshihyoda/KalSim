@@ -409,19 +409,26 @@ export const ConfigForm: React.FC<ConfigFormProps> = ({
                       {!generatingAgents &&
                         visibleAgents.map((agent: any, i: number) => {
                           // Support both LLM-generated (view) and SocioVerse (market_outlook) formats
-                          const outlook = agent?.beliefs?.view || agent?.beliefs?.market_outlook || "neutral";
-                          const view = outlook.charAt(0).toUpperCase() + outlook.slice(1).toLowerCase();
+                          const outlook =
+                            agent?.beliefs?.view ||
+                            agent?.beliefs?.market_outlook ||
+                            "neutral";
+                          const view =
+                            outlook.charAt(0).toUpperCase() +
+                            outlook.slice(1).toLowerCase();
                           const viewColor =
                             view === "Bullish"
                               ? "text-emerald-400"
                               : view === "Bearish"
                                 ? "text-rose-400"
                                 : "text-gray-400";
-                          
+
                           // Get display name and initial (handle numeric SocioVerse IDs)
-                          const displayName = String(agent?.name || `User_${i}`);
-                          const initial = displayName.match(/[a-zA-Z]/) 
-                            ? displayName.match(/[a-zA-Z]/)?.[0]?.toUpperCase() 
+                          const displayName = String(
+                            agent?.name || `User_${i}`,
+                          );
+                          const initial = displayName.match(/[a-zA-Z]/)
+                            ? displayName.match(/[a-zA-Z]/)?.[0]?.toUpperCase()
                             : displayName[0] || "?";
 
                           return (
