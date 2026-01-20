@@ -110,15 +110,17 @@ class Agent:
     
     MEMORY_LIMIT: int = 50
     
-    def __init__(self, agent_id: int, persona: dict[str, Any]) -> None:
+    def __init__(self, agent_id: int, persona: dict[str, Any], market_topic: str = "prediction markets") -> None:
         """Initialize an Agent with 7-layer modules.
         
         Args:
             agent_id: Unique identifier for this agent.
             persona: Dictionary containing agent's personality profile.
+            market_topic: The market topic this agent will discuss.
         """
         self.agent_id = agent_id
         self.persona = persona
+        self.market_topic = market_topic
         self.memory: list[MemoryEntry] = []
         self._current_timestamp: datetime = datetime.now()
         
@@ -364,7 +366,9 @@ class Agent:
         
         layer_context = self._build_layer_context()
         
-        prompt = f"""You are simulating a social media user during the GameStop stock surge in January 2021.
+        prompt = f"""You are simulating a social media user discussing prediction markets.
+
+TOPIC: {self.market_topic}
 
 CHARACTER PROFILE:
 - Name: {self.name}
@@ -381,7 +385,7 @@ Based on your character, psychological state, and the current situation, decide 
 Choose ONE action and provide your response in this exact format:
 
 ACTION: [TWEET/HOLD/LURK]
-CONTENT: [If TWEET, write a short tweet (max 280 chars) about GME. If HOLD or LURK, briefly explain why.]
+CONTENT: [If TWEET, write a short post (max 280 chars) about "{self.market_topic}". If HOLD or LURK, briefly explain why.]
 
 Remember to stay in character and let your psychological state influence your decision."""
 

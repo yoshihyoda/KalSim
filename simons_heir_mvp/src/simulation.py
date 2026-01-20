@@ -59,6 +59,7 @@ class Simulation:
         mock_llm: bool = False,
         custom_agents: list[dict[str, Any]] | None = None,
         use_kalshi: bool = False,
+        market_topic: str | None = None,
     ) -> None:
         """Initialize the simulation.
         
@@ -70,6 +71,7 @@ class Simulation:
             mock_llm: Whether to run in mock mode.
             custom_agents: Optional personas to use instead of file/defaults.
             use_kalshi: Whether to use real Kalshi market data.
+            market_topic: The market topic to simulate discussions about.
         """
         ensure_directories()
         
@@ -80,6 +82,7 @@ class Simulation:
         self.mock_llm = mock_llm
         self.custom_agents = custom_agents or []
         self.use_kalshi = use_kalshi or not mock_llm
+        self.market_topic = market_topic or "prediction markets"
         
         self.agents: list[Agent] = []
         self.llm: LlamaInterface | None = None
@@ -326,11 +329,29 @@ class Simulation:
         self._community_sentiment = max(-1.0, min(1.0, self._community_sentiment))
     
     def _load_personas(self) -> list[dict[str, Any]]:
-        """Load agent personas from file.
+        """Load personas with priority chain: SocioVerse > custom > Kalshi-generated > file > defaults.
         
         Returns:
             List of persona dictionaries.
         """
+        # Priority 1: Try SocioVerse dataset (real user data) - HIGHEST PRIORITY
+        if self.use_kalshi:
+            personas = self._try_load_socioverse()
+            if personas:
+                return personas
+        
+        # Priority 2: Custom agents provided via API request
+        if self.custom_agents:
+            logger.info(f"Using {len(self.custom_agents)} custom agents from request")
+            return self.custom_agents
+        
+        # Priority 3: Generate personas from Kalshi trends using LLM
+        if self.use_kalshi and self._kalshi_analysis:
+            personas = self._try_generate_from_kalshi()
+            if personas:
+                return personas
+        
+        # Priority 4: Load from static file as fallback
         if self.persona_file.exists():
             try:
                 with open(self.persona_file, "r", encoding="utf-8") as f:
@@ -338,10 +359,65 @@ class Simulation:
                 logger.info(f"Loaded {len(personas)} personas from {self.persona_file}")
                 return personas
             except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Failed to load personas: {e}")
+                logger.warning(f"Failed to load personas from file: {e}")
         
+        # Priority 5: Generate defaults
         logger.info("Generating default personas")
         return self._generate_default_personas()
+
+    def _try_load_socioverse(self) -> list[dict[str, Any]] | None:
+        """Attempt to load personas from SocioVerse dataset.
+        
+        Returns:
+            List of personas or None if unavailable.
+        """
+        try:
+            from .socioverse_connector import SocioVerseConnector
+            
+            connector = SocioVerseConnector()
+            personas = connector.fetch_user_pool(count=self.agent_count)
+            
+            if personas:
+                logger.info(f"Loaded {len(personas)} personas from SocioVerse")
+                return personas
+            
+        except ImportError:
+            logger.debug("SocioVerse connector not available")
+        except Exception as e:
+            logger.warning(f"SocioVerse fetch failed: {e}")
+        
+        return None
+
+    def _try_generate_from_kalshi(self) -> list[dict[str, Any]] | None:
+        """Attempt to generate personas from Kalshi trends using LLM.
+        
+        Returns:
+            List of personas or None if generation fails.
+        """
+        try:
+            trend_summary = self._kalshi_analysis.get("summary", "")
+            if not trend_summary:
+                return None
+            
+            if not self.llm:
+                self.llm = LlamaInterface(mock_mode=self.mock_llm)
+            
+            from .agent_generator import AgentGenerator
+            
+            generator = AgentGenerator(self.llm)
+            personas = generator.generate_agents(
+                trend_summary=trend_summary,
+                count=self.agent_count,
+            )
+            
+            if personas:
+                logger.info(f"Generated {len(personas)} personas from Kalshi trends")
+                return personas
+            
+        except Exception as e:
+            logger.warning(f"Kalshi persona generation failed: {e}")
+        
+        return None
     
     def _generate_default_personas(self) -> list[dict[str, Any]]:
         """Generate default personas if file not available.
@@ -392,15 +468,25 @@ class Simulation:
         """
         for i in range(self.agent_count):
             persona = personas[i % len(personas)] if personas else {}
-            agent = Agent(agent_id=i, persona=persona)
+            agent = Agent(agent_id=i, persona=persona, market_topic=self.market_topic)
             self.agents.append(agent)
     
     def _load_seed_tweets(self) -> list[str]:
-        """Load seed tweets from CSV file.
+        """Load seed content, preferring dynamic Kalshi-based content.
         
         Returns:
-            List of tweet strings.
+            List of tweet/content strings.
         """
+        # Priority 1: Generate dynamic content from Kalshi trends
+        if self.use_kalshi and self._kalshi_analysis:
+            topics = self._kalshi_analysis.get("topics", [])
+            if topics:
+                dynamic_content = self._generate_kalshi_based_content(topics)
+                if dynamic_content:
+                    logger.info(f"Generated {len(dynamic_content)} dynamic seed posts from Kalshi topics")
+                    return dynamic_content
+        
+        # Priority 2: Load from static file as fallback
         if self.tweets_file.exists():
             try:
                 import csv
@@ -411,12 +497,43 @@ class Simulation:
                         text = row.get("text") or row.get("tweet") or row.get("content", "")
                         if text:
                             tweets.append(text)
-                logger.info(f"Loaded {len(tweets)} seed tweets")
+                logger.info(f"Loaded {len(tweets)} seed tweets from file")
                 return tweets[:1000]
             except (IOError, csv.Error) as e:
                 logger.warning(f"Failed to load tweets: {e}")
         
+        # Priority 3: Generate sample content
         return self._generate_sample_tweets()
+
+    def _generate_kalshi_based_content(self, topics: list[str]) -> list[str]:
+        """Generate seed content based on Kalshi trending topics.
+        
+        Args:
+            topics: List of trending topic strings from Kalshi.
+            
+        Returns:
+            List of generated content strings.
+        """
+        content = []
+        
+        templates = [
+            "What do you think about {topic}?",
+            "Just saw the latest on {topic}. Thoughts?",
+            "The odds on {topic} are interesting. Anyone tracking this?",
+            "{topic} - this could be huge!",
+            "Keeping an eye on {topic}. Market sentiment looks strong.",
+            "Does anyone have insight on {topic}?",
+            "The prediction market for {topic} is heating up!",
+            "I'm bullish on {topic}. Here's why...",
+            "Skeptical about {topic}. What am I missing?",
+            "{topic} - make your bets now or regret later!",
+        ]
+        
+        for topic in topics[:10]:
+            for template in templates:
+                content.append(template.format(topic=topic))
+        
+        return content
     
     def _generate_sample_tweets(self) -> list[str]:
         """Generate sample tweets for simulation.
