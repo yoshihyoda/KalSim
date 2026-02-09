@@ -61,6 +61,21 @@ class TestSocioVerseConnector:
         assert result["beliefs"]["risk_tolerance"] == "moderate"
         assert result["beliefs"]["market_outlook"] == "neutral"
 
+    def test_transform_user_numeric_id_is_stringified(self):
+        """Numeric user IDs should be stringified for API compatibility."""
+        connector = SocioVerseConnector()
+
+        user = {
+            "user_id": 237236420,
+            "AGE": "25-34",
+            "influence": 0.2,
+        }
+
+        result = connector._transform_user(0, user)
+
+        assert result["name"] == "237236420"
+        assert isinstance(result["name"], str)
+
     def test_extract_traits_young_user(self):
         """Test trait extraction for young users."""
         connector = SocioVerseConnector()
@@ -175,6 +190,57 @@ class TestSocioVerseConnector:
             personas = connector.fetch_user_pool(count=10)
         
         assert personas == []
+
+    def test_fetch_user_pool_falls_back_to_default_config(self):
+        """Test fallback from data_files config to default cached config."""
+        mock_dataset = [{"user_id": "CachedUser", "AGE": "25-34", "influence": 0.6}]
+        first_error = Exception(
+            "Couldn't find cache for Lishi0905/SocioVerse for config "
+            "'default-data_files=user_pool_X.json' "
+            "Available configs in the cache: ['default-07262c9749a68281']"
+        )
+
+        mock_datasets = MagicMock()
+        mock_datasets.load_dataset = MagicMock(side_effect=[first_error, mock_dataset])
+
+        connector = SocioVerseConnector(hf_token="test_token")
+
+        with patch.dict("sys.modules", {"datasets": mock_datasets}):
+            personas = connector.fetch_user_pool(count=1)
+
+        assert len(personas) == 1
+        assert personas[0]["name"] == "CachedUser"
+        assert mock_datasets.load_dataset.call_count == 2
+        first_call_kwargs = mock_datasets.load_dataset.call_args_list[0].kwargs
+        second_call_kwargs = mock_datasets.load_dataset.call_args_list[1].kwargs
+        assert first_call_kwargs["data_files"] == connector.DATA_FILE
+        assert "data_files" not in second_call_kwargs
+
+    def test_fetch_user_pool_tries_named_cached_config(self):
+        """Test fallback to named cached config when default load also fails."""
+        cache_error = Exception(
+            "Couldn't find cache for Lishi0905/SocioVerse for config "
+            "'default-data_files=user_pool_X.json' "
+            "Available configs in the cache: ['default-07262c9749a68281']"
+        )
+        default_error = Exception("Default config not available")
+        mock_dataset = [{"user_id": "NamedCacheUser", "AGE": "35-44", "influence": 0.4}]
+
+        mock_datasets = MagicMock()
+        mock_datasets.load_dataset = MagicMock(
+            side_effect=[cache_error, default_error, mock_dataset]
+        )
+
+        connector = SocioVerseConnector(hf_token="test_token")
+
+        with patch.dict("sys.modules", {"datasets": mock_datasets}):
+            personas = connector.fetch_user_pool(count=1)
+
+        assert len(personas) == 1
+        assert personas[0]["name"] == "NamedCacheUser"
+        assert mock_datasets.load_dataset.call_count == 3
+        cached_call_args = mock_datasets.load_dataset.call_args_list[2].args
+        assert cached_call_args[1] == "default-07262c9749a68281"
 
     def test_fetch_user_pool_no_datasets_library(self):
         """Test handling when datasets library not installed."""

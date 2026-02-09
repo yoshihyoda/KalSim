@@ -7,6 +7,8 @@ Reference: https://huggingface.co/datasets/Lishi0905/SocioVerse
 import logging
 import os
 import random
+import re
+from ast import literal_eval
 from typing import Any
 
 from .interfaces import UserPoolProviderABC
@@ -49,13 +51,8 @@ class SocioVerseConnector(UserPoolProviderABC):
             from datasets import load_dataset
             
             logger.info(f"Fetching {count} users from SocioVerse dataset...")
-            
-            dataset = load_dataset(
-                self.DATASET_NAME,
-                data_files=self.DATA_FILE,
-                split=f"train[:{count}]",
-                token=self.hf_token,
-            )
+
+            dataset = self._load_dataset_with_fallback(load_dataset, count=count)
             
             self._dataset = dataset
             
@@ -72,11 +69,109 @@ class SocioVerseConnector(UserPoolProviderABC):
             return []
         except Exception as e:
             logger.error(f"Failed to fetch from SocioVerse: {e}")
-            logger.error(
+            hint = self._build_access_hint(e)
+            if hint:
+                logger.error(hint)
+            return []
+
+    def _load_dataset_with_fallback(self, load_dataset: Any, count: int) -> Any:
+        """Load SocioVerse with multiple config fallbacks for cache compatibility."""
+        split = f"train[:{count}]"
+
+        # Preferred path: explicit data file.
+        try:
+            return load_dataset(
+                self.DATASET_NAME,
+                data_files=self.DATA_FILE,
+                split=split,
+                token=self.hf_token,
+            )
+        except Exception as data_file_error:
+            logger.warning(
+                "SocioVerse load with data file '%s' failed, trying default config: %s",
+                self.DATA_FILE,
+                data_file_error,
+            )
+
+            # Fallback path: default config often maps to local cache keys.
+            try:
+                return load_dataset(
+                    self.DATASET_NAME,
+                    split=split,
+                    token=self.hf_token,
+                )
+            except Exception as default_error:
+                logger.warning(
+                    "SocioVerse default config load failed, trying cached configs: %s",
+                    default_error,
+                )
+                cached_configs = self._extract_cached_configs(
+                    str(data_file_error)
+                ) or self._extract_cached_configs(str(default_error))
+                for config_name in cached_configs:
+                    try:
+                        logger.info(
+                            "Trying cached SocioVerse config: %s",
+                            config_name,
+                        )
+                        return load_dataset(
+                            self.DATASET_NAME,
+                            config_name,
+                            split=split,
+                            token=self.hf_token,
+                        )
+                    except Exception as cached_error:
+                        logger.debug(
+                            "Cached config '%s' failed: %s",
+                            config_name,
+                            cached_error,
+                        )
+
+                # Surface the most relevant failure.
+                raise default_error from data_file_error
+
+    @staticmethod
+    def _extract_cached_configs(message: str) -> list[str]:
+        """Extract cached dataset config names from datasets error messages."""
+        if "Available configs in the cache" not in message:
+            return []
+
+        match = re.search(
+            r"Available configs in the cache:\s*(\[[^\]]*\])",
+            message,
+        )
+        if not match:
+            return []
+
+        raw_list = match.group(1)
+        try:
+            parsed = literal_eval(raw_list)
+        except (ValueError, SyntaxError):
+            return []
+
+        if not isinstance(parsed, list):
+            return []
+
+        return [str(item) for item in parsed if isinstance(item, str)]
+
+    @staticmethod
+    def _build_access_hint(error: Exception) -> str | None:
+        """Return a targeted guidance message for known access failures."""
+        message = str(error).lower()
+
+        if any(token in message for token in ["401", "403", "access denied", "gated"]):
+            return (
                 "Ensure you have accepted the dataset terms at: "
                 "https://huggingface.co/datasets/Lishi0905/SocioVerse"
             )
-            return []
+
+        if "couldn't be found on the hugging face hub" in message:
+            return (
+                "SocioVerse could not be found on Hugging Face Hub. "
+                "The connector attempted cached fallbacks."
+            )
+
+        return None
 
     def _transform_user(self, idx: int, user: dict[str, Any]) -> dict[str, Any]:
         """Transform SocioVerse user schema to simulation persona schema.
@@ -88,7 +183,10 @@ class SocioVerseConnector(UserPoolProviderABC):
         Returns:
             Persona dictionary compatible with simulation Agent class.
         """
-        user_id = user.get("user_id", f"SV_User_{idx}")
+        user_id_raw = user.get("user_id")
+        user_id = str(user_id_raw).strip() if user_id_raw is not None else ""
+        if not user_id:
+            user_id = f"SV_User_{idx}"
         
         personality_traits = self._extract_traits(user)
         interests = self._extract_interests(user)
@@ -204,14 +302,25 @@ class SocioVerseConnector(UserPoolProviderABC):
         Returns:
             Market outlook: 'bullish', 'bearish', or 'neutral'.
         """
-        consumption = str(user.get("Level of Consumption", "")).lower()
+        consumption_raw = user.get("Level of Consumption", "")
+        consumption = str(consumption_raw).lower().strip()
+
+        # Keep deterministic behavior when consumption is missing/unknown.
+        if not consumption:
+            return "neutral"
         
         if "high" in consumption:
             return "bullish"
         elif "low" in consumption:
             return "bearish"
         else:
-            return "neutral"
+            # Add randomness to avoid too many neutrals
+            # 35% Bullish, 35% Bearish, 30% Neutral
+            return random.choices(
+                ["bullish", "bearish", "neutral"],
+                weights=[0.35, 0.35, 0.30],
+                k=1
+            )[0]
 
     def _infer_trust_level(self, user: dict[str, Any]) -> str:
         """Infer institutional trust level from user attributes.
@@ -239,13 +348,8 @@ class SocioVerseConnector(UserPoolProviderABC):
         """
         try:
             from datasets import load_dataset
-            
-            dataset = load_dataset(
-                self.DATASET_NAME,
-                data_files=self.DATA_FILE,
-                split="train[:1]",
-                token=self.hf_token,
-            )
+
+            dataset = self._load_dataset_with_fallback(load_dataset, count=1)
             return len(dataset) > 0
         except Exception:
             return False

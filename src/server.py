@@ -1,61 +1,93 @@
-import asyncio
 import logging
 import threading
-from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
-from .simulation import Simulation
-from .predictor import Predictor
-from .visualizer import plot_results
-from .kalshi import KalshiClient
 from .agent_generator import AgentGenerator
-from .llm_interface import LlamaInterface
 from .config import (
-    SIMULATION_LOG_FILE,
-    SENTIMENT_PLOT_FILE,
     AGENTS_COUNT,
+    SENTIMENT_PLOT_FILE,
     SIMULATION_DAYS,
+    SIMULATION_LOG_FILE,
+    STEPS_PER_DAY,
 )
+from .kalshi import KalshiClient
+from .llm_interface import LlamaInterface
+from .predictor import Predictor
+from .simulation import Simulation
+from .visualizer import plot_results
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
-logger = logging.getLogger("simons_heir_server")
+logger = logging.getLogger("kalsim_server")
 
-# Global State
+
 class SimulationState:
-    def __init__(self):
-        self.simulation: Optional[Simulation] = None
-        self.thread: Optional[threading.Thread] = None
+    def __init__(self) -> None:
+        self.simulation: Simulation | None = None
+        self.thread: threading.Thread | None = None
         self.is_running: bool = False
-        self.error: Optional[str] = None
-        self.latest_analysis: Optional[pd.DataFrame] = None
-    
-    def reset(self):
+        self.error: str | None = None
+        self.latest_analysis: pd.DataFrame | None = None
+
+    def reset(self) -> None:
         self.simulation = None
         self.thread = None
         self.is_running = False
         self.error = None
         self.latest_analysis = None
 
-state = SimulationState()
 
-# Models
+state = SimulationState()
+state_lock = threading.Lock()
+
+
+class AgentBeliefs(BaseModel):
+    risk_tolerance: str | None = None
+    view: str | None = None
+    market_outlook: str | None = None
+    trust_in_institutions: str | None = None
+
+
+class AgentSocial(BaseModel):
+    follower_count: int | None = None
+    influence_score: float | None = None
+
+
+class AgentPersona(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: int | None = None
+    name: str | None = None
+    personality_traits: list[str] | None = None
+    interests: list[str] | None = None
+    beliefs: AgentBeliefs | None = None
+    social: AgentSocial | None = None
+
+
+class SimulationLogEntry(BaseModel):
+    agent_id: int
+    timestamp: str
+    action_type: str
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SimulationConfig(BaseModel):
     agents: int = AGENTS_COUNT
     days: int = SIMULATION_DAYS
-    mock_mode: bool = False  # Default to live LLM inference
-    use_kalshi: bool = True  # Default to real Kalshi data
-    custom_agents: Optional[List[Dict[str, Any]]] = None
-    market_topic: Optional[str] = None  # Selected market topic (e.g., "US climate goals")
+    mock_mode: bool = False
+    use_kalshi: bool = True
+    custom_agents: list[AgentPersona] | None = None
+    market_topic: str | None = None
+    random_seed: int | None = None
+
 
 class SimulationStatus(BaseModel):
     is_running: bool
@@ -64,95 +96,120 @@ class SimulationStatus(BaseModel):
     progress_pct: float
     current_price: float
     current_day: int
-    run_error: Optional[str] = None
-    recent_logs: List[Dict[str, Any]] = []
+    run_error: str | None = None
+    recent_logs: list[SimulationLogEntry] = Field(default_factory=list)
 
-# Background Worker
-def simulation_worker(config: SimulationConfig):
-    """Running in a background thread"""
-    global state
-    try:
-        logger.info("Starting simulation worker...")
-        state.is_running = True
-        state.error = None
-        
-        sim = Simulation(
-            days=config.days,
-            agent_count=config.agents,
-            mock_llm=config.mock_mode,
-            custom_agents=config.custom_agents,
-            use_kalshi=config.use_kalshi or not config.mock_mode,
-            market_topic=config.market_topic,
-        )
-        state.simulation = sim
-        
-        # This blocks until finished
-        sim.run()
-        
-        # After run analysis
-        logger.info("Simulation finished. Running analysis...")
-        if not sim.stop_requested:
-            predictor = Predictor()
-            # Reload from file or use memory if we refactor predictor to accept list
-            # The predictor.analyze() method accepts a list.
-            state.latest_analysis = predictor.analyze(simulation_log=sim.simulation_log)
-            
-            # Generate plot immediately
-            plot_results(state.latest_analysis, output_path=SENTIMENT_PLOT_FILE)
-            
-    except Exception as e:
-        logger.error(f"Simulation failed: {e}")
-        state.error = str(e)
-    finally:
-        state.is_running = False
-        logger.info("Simulation worker finished")
-
-# API
-app = FastAPI(title="Simons' Heir API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # For dev
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 class KalshiAnalysisResponse(BaseModel):
     trends: dict[str, Any]
-    agents: list[dict[str, Any]]
+    agents: list[AgentPersona]
+
 
 class KalshiAgentsRequest(BaseModel):
     event_ticker: str
     count: int = 5
 
+
 class KalshiAgentsResponse(BaseModel):
     event_ticker: str
-    event_title: Optional[str] = None
-    summary: Optional[str] = None
-    agents: list[dict[str, Any]]
+    event_title: str | None = None
+    summary: str | None = None
+    agents: list[AgentPersona]
+
+
+def _normalize_agent_payload(agent: dict[str, Any], index: int) -> dict[str, Any]:
+    """Normalize external agent payload fields before Pydantic validation."""
+    normalized = dict(agent)
+    name = normalized.get("name")
+
+    if isinstance(name, str):
+        cleaned_name = name.strip()
+        normalized["name"] = cleaned_name if cleaned_name else f"Agent_{index}"
+    elif name is None:
+        normalized["name"] = f"Agent_{index}"
+    else:
+        normalized["name"] = str(name)
+
+    return normalized
+
+
+def _validate_agent_personas(raw_agents: list[dict[str, Any]]) -> list[AgentPersona]:
+    """Validate and coerce agent payloads into API response models."""
+    return [
+        AgentPersona.model_validate(_normalize_agent_payload(agent, idx))
+        for idx, agent in enumerate(raw_agents)
+    ]
+
+
+def simulation_worker(config: SimulationConfig) -> None:
+    """Run simulation in a background thread."""
+    try:
+        logger.info("Starting simulation worker...")
+        with state_lock:
+            state.is_running = True
+            state.error = None
+
+        sim = Simulation(
+            days=config.days,
+            agent_count=config.agents,
+            mock_llm=config.mock_mode,
+            custom_agents=[agent.model_dump(exclude_none=True) for agent in config.custom_agents]
+            if config.custom_agents
+            else None,
+            use_kalshi=config.use_kalshi or not config.mock_mode,
+            market_topic=config.market_topic,
+            random_seed=config.random_seed,
+            output_log_file=SIMULATION_LOG_FILE,
+        )
+
+        with state_lock:
+            state.simulation = sim
+
+        sim.run()
+
+        logger.info("Simulation finished. Running analysis...")
+        if not sim.stop_requested:
+            predictor = Predictor()
+            analysis_df = predictor.analyze(simulation_log=sim.simulation_log)
+            plot_results(analysis_df, output_path=SENTIMENT_PLOT_FILE)
+            with state_lock:
+                state.latest_analysis = analysis_df
+
+    except Exception as exc:
+        logger.exception("Simulation failed: %s", exc)
+        with state_lock:
+            state.error = str(exc)
+    finally:
+        with state_lock:
+            state.is_running = False
+        logger.info("Simulation worker finished")
+
+
+app = FastAPI(title="KalSim API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.post("/api/kalshi/analyze", response_model=KalshiAnalysisResponse)
-async def analyze_kalshi_markets():
+async def analyze_kalshi_markets() -> KalshiAnalysisResponse:
     try:
-        # 1. Fetch trending events
         kalshi = KalshiClient()
         events = kalshi.get_trending_events(limit=20)
-        
-        # 2. Analyze trends
         analysis = kalshi.analyze_trends(events)
-        
-        return {
-            "trends": analysis,
-            "agents": []
-        }
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return KalshiAnalysisResponse(trends=analysis, agents=[])
+    except Exception as exc:
+        logger.exception("Kalshi analyze failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 @app.post("/api/kalshi/agents", response_model=KalshiAgentsResponse)
-async def generate_kalshi_agents(payload: KalshiAgentsRequest):
+async def generate_kalshi_agents(payload: KalshiAgentsRequest) -> KalshiAgentsResponse:
     try:
         kalshi = KalshiClient()
         event = kalshi.get_event_details(payload.event_ticker)
@@ -160,60 +217,78 @@ async def generate_kalshi_agents(payload: KalshiAgentsRequest):
             raise HTTPException(status_code=404, detail="Event not found")
 
         summary = kalshi.summarize_event(event)
-        
-        # Try SocioVerse first for real user data
-        agents = []
+
+        agents: list[dict[str, Any]] = []
         try:
             from .socioverse_connector import SocioVerseConnector
+
             connector = SocioVerseConnector()
             agents = connector.fetch_user_pool(count=payload.count)
             if agents:
-                logger.info(f"Loaded {len(agents)} personas from SocioVerse for market: {payload.event_ticker}")
-        except Exception as e:
-            logger.warning(f"SocioVerse fetch failed: {e}")
-        
-        # Fallback to LLM generation if SocioVerse unavailable
+                logger.info(
+                    "Loaded %s personas from SocioVerse for market: %s",
+                    len(agents),
+                    payload.event_ticker,
+                )
+        except Exception as exc:
+            logger.warning("SocioVerse fetch failed: %s", exc)
+
         if not agents:
             llm = LlamaInterface()
             generator = AgentGenerator(llm)
             agents = generator.generate_agents(summary, count=payload.count)
-            logger.info(f"Generated {len(agents)} personas via LLM for market: {payload.event_ticker}")
+            logger.info(
+                "Generated %s personas via LLM for market: %s",
+                len(agents),
+                payload.event_ticker,
+            )
 
-        return {
-            "event_ticker": payload.event_ticker,
-            "event_title": event.get("title"),
-            "summary": summary,
-            "agents": agents,
-        }
+        return KalshiAgentsResponse(
+            event_ticker=payload.event_ticker,
+            event_title=event.get("title"),
+            summary=summary,
+            agents=_validate_agent_personas(agents),
+        )
     except HTTPException:
         raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("Kalshi agent generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 @app.post("/api/simulation/start")
-def start_simulation(config: SimulationConfig):
-    if state.is_running:
-        raise HTTPException(status_code=409, detail="Simulation already running")
-    
-    state.reset()
-    state.thread = threading.Thread(target=simulation_worker, args=(config,)) # kept as tuple
-    state.thread.start()
-    
+def start_simulation(config: SimulationConfig) -> dict[str, str]:
+    with state_lock:
+        if state.is_running:
+            raise HTTPException(status_code=409, detail="Simulation already running")
+        state.reset()
+        state.thread = threading.Thread(target=simulation_worker, args=(config,), daemon=True)
+        state.thread.start()
+
     return {"message": "Simulation started"}
 
+
 @app.post("/api/simulation/stop")
-def stop_simulation():
-    if not state.is_running or not state.simulation:
+def stop_simulation() -> dict[str, str]:
+    with state_lock:
+        sim = state.simulation
+        is_running = state.is_running
+
+    if not is_running or not sim:
         return {"message": "No simulation running"}
-    
-    state.simulation.stop_requested = True
+
+    sim.stop_requested = True
     return {"message": "Stop signal sent"}
 
+
 @app.get("/api/simulation/state", response_model=SimulationStatus)
-def get_state():
-    if not state.simulation:
+def get_state() -> SimulationStatus:
+    with state_lock:
+        sim = state.simulation
+        is_running = state.is_running
+        run_error = state.error
+
+    if sim is None:
         return SimulationStatus(
             is_running=False,
             current_step=0,
@@ -221,78 +296,61 @@ def get_state():
             progress_pct=0.0,
             current_price=0.0,
             current_day=0,
-            run_error=state.error
+            run_error=run_error,
+            recent_logs=[],
         )
-    
-    # Calculate progress
-    # Simulation doesn't expose 'current_step' directly as a public counter easily
-    # but we can infer from logs or time. 
-    # Actually, let's fetch log length.
-    steps_done = len(state.simulation.simulation_log)
-    # Note: This is an approximation if multiple actions per step.
-    # Ideally Simulation class should expose `current_step`.
-    # Let's rely on time or just approximation for MVP.
-    
-    # Let's look at the implementation: 1 step = multiple agent actions.
-    # The loop runs 'total_steps'. 
-    # We need to expose current step in simulation.
-    
-    # For now, let's assume I'll add 'current_step_index' to Simulation class 
-    # to make this accurate. If not, return 0.
-    
-    current_step = getattr(state.simulation, "_current_step_index", 0)
-    total_steps = state.simulation.days * (24 // 1) # hardcoded config
-    
-    pct = (current_step / total_steps) * 100 if total_steps > 0 else 0
-    
-    # Get recent logs (last 5)
-    recent = state.simulation.simulation_log[-5:] if state.simulation.simulation_log else []
-    
+
+    current_step = getattr(sim, "_current_step_index", 0)
+    total_steps = sim.days * STEPS_PER_DAY
+    pct = (current_step / total_steps) * 100 if total_steps > 0 else 0.0
+    recent = sim.simulation_log[-5:] if sim.simulation_log else []
+
     return SimulationStatus(
-        is_running=state.is_running,
+        is_running=is_running,
         current_step=current_step,
         total_steps=total_steps,
         progress_pct=round(pct, 1),
-        current_price=state.simulation._current_price,
-        current_day=(current_step // 24) + 1,
-        run_error=state.error,
-        recent_logs=recent
+        current_price=sim._current_price,
+        current_day=(current_step // STEPS_PER_DAY) + 1 if total_steps > 0 else 0,
+        run_error=run_error,
+        recent_logs=[SimulationLogEntry.model_validate(log) for log in recent],
     )
 
+
 @app.get("/api/results/stats")
-def get_results_stats():
-    if state.latest_analysis is None:
-        # Try to load from disk if available
-        if SIMULATION_LOG_FILE.exists():
-            try:
-                p = Predictor()
-                state.latest_analysis = p.analyze(log_file=SIMULATION_LOG_FILE)
-            except Exception:
-                raise HTTPException(status_code=404, detail="No results available")
-        else:
+def get_results_stats() -> dict[str, Any]:
+    with state_lock:
+        analysis_df = state.latest_analysis
+
+    if analysis_df is None:
+        if not SIMULATION_LOG_FILE.exists():
             raise HTTPException(status_code=404, detail="No results available")
-            
-    p = Predictor()
-    summary = p.get_summary_stats(state.latest_analysis)
-    
-    # Convert dates to string for JSON serialization
-    # Pandas timestamps need handling
-    
-    # Convert the whole DF to records for charting
-    # Replace NaN with null
-    chart_data = state.latest_analysis.where(pd.notnull(state.latest_analysis), None).to_dict(orient="records")
-    
+        try:
+            predictor = Predictor()
+            analysis_df = predictor.analyze(log_file=SIMULATION_LOG_FILE)
+            with state_lock:
+                state.latest_analysis = analysis_df
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="No results available") from exc
+
+    predictor = Predictor()
+    summary = predictor.get_summary_stats(analysis_df)
+    chart_data = analysis_df.where(pd.notnull(analysis_df), None).to_dict(orient="records")
+
     return {
         "summary": summary,
-        "chart_data": chart_data
+        "chart_data": chart_data,
     }
 
+
 @app.get("/api/results/plot")
-def get_results_plot():
+def get_results_plot() -> FileResponse:
     if not SENTIMENT_PLOT_FILE.exists():
         raise HTTPException(status_code=404, detail="Plot not found")
     return FileResponse(SENTIMENT_PLOT_FILE)
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
