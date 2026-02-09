@@ -19,13 +19,13 @@ KalSim explores how heterogeneous agents, social dynamics, and market context in
 - FastAPI endpoints for orchestration and result retrieval
 - Frontend dashboard for simulation lifecycle and results
 
-## 利用イメージ
+## Usage Preview
 
-### ダッシュボード
+### Dashboard
 
 ![KalSim Dashboard](public/dashboard.png)
 
-### AI agentのやり取り
+### AI Agent Interactions
 
 ![KalSim Agent Interaction](public/simulation.png)
 
