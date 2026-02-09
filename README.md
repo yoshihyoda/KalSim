@@ -25,7 +25,7 @@ KalSim explores how heterogeneous agents, social dynamics, and market context in
 
 ![KalSim Dashboard](public/dashboard.png)
 
-### AI Agent Interactions
+### AI-to-AI Interactions Only (Humans Keep Out)
 
 ![KalSim Agent Interaction](public/simulation.png)
 
