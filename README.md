@@ -19,6 +19,21 @@ KalSim explores how heterogeneous agents, social dynamics, and market context in
 - FastAPI endpoints for orchestration and result retrieval
 - Frontend dashboard for simulation lifecycle and results
 
+## Compliance Guardrails
+
+- SocioVerse access is blocked unless research mode is explicitly enabled.
+- Set `KALSIM_RESEARCH_MODE=true` before using SocioVerse.
+- SocioVerse integration in this repo is for persona metadata only.
+- For X-related data, text content must be fetched via the official X API.
+- SocioVerse access attempts/success/failures are emitted to `kalsim.compliance` logs.
+
+Example:
+
+```bash
+export KALSIM_RESEARCH_MODE=true
+export HF_TOKEN=hf_xxx
+```
+
 ## Usage Preview
 
 ### Dashboard
