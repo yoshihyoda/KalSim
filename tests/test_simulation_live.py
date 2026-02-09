@@ -315,6 +315,60 @@ class TestUpdateMarketStateLive:
         assert sim._current_price != 80.0
         assert sim._current_price != initial_price
 
+    def test_update_market_state_matches_market_title(self):
+        """Test human-readable topic can match market title from list."""
+        mock_client = MagicMock()
+        mock_client.get_public_markets.return_value = [
+            {
+                "ticker": "TV-PRISONBREAK",
+                "title": "When will Prison Break return?",
+                "yes_price": 0.42,
+                "volume_24h": 1000,
+            }
+        ]
+        mock_client.get_trending_events.return_value = []
+        mock_client.analyze_trends.return_value = {"topics": [], "summary": ""}
+        mock_client.get_market.return_value = None
+
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=True,
+            market_provider=mock_client,
+            market_topic="When will Prison Break return?",
+        )
+        sim.setup()
+
+        sim._update_market_state(step=1)
+
+        assert sim._current_price == pytest.approx(42.0)
+        mock_client.get_market.assert_not_called()
+
+    def test_update_market_state_skips_direct_fetch_for_non_ticker_topic(self):
+        """Test non-ticker topics do not trigger direct get_market API calls."""
+        mock_client = MagicMock()
+        mock_client.get_public_markets.return_value = [
+            {"ticker": "OTHER-MKT", "yes_price": 0.80, "volume_24h": 1000}
+        ]
+        mock_client.get_trending_events.return_value = []
+        mock_client.analyze_trends.return_value = {"topics": [], "summary": ""}
+        mock_client.get_market.return_value = None
+
+        sim = Simulation(
+            agent_count=1,
+            days=1,
+            mock_llm=True,
+            use_kalshi=True,
+            market_provider=mock_client,
+            market_topic="When will Prison Break return?",
+        )
+        sim.setup()
+
+        sim._update_market_state(step=1)
+
+        mock_client.get_market.assert_not_called()
+
     def test_update_market_state_falls_back_on_empty_response(self):
         """Test fallback to formula when API returns empty list."""
         mock_client = MagicMock(spec=MarketDataProviderABC)

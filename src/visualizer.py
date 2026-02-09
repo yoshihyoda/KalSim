@@ -4,6 +4,7 @@ Creates visualizations of sentiment trends and keyword frequencies.
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,22 @@ logger = logging.getLogger(__name__)
 class VisualizerError(Exception):
     """Base exception for visualizer errors."""
     pass
+
+
+def _ensure_safe_backend(show_plot: bool) -> None:
+    """Switch to a non-interactive backend for background rendering."""
+    if show_plot or threading.current_thread() is threading.main_thread():
+        return
+
+    current_backend = str(plt.get_backend())
+    if current_backend.lower() == "agg":
+        return
+
+    logger.debug(
+        "Switching matplotlib backend from %s to Agg for background plotting",
+        current_backend,
+    )
+    plt.switch_backend("Agg")
 
 
 def plot_results(
@@ -43,11 +60,12 @@ def plot_results(
         VisualizerError: If plotting or saving fails.
     """
     try:
+        _ensure_safe_backend(show_plot)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         fig, axes = plt.subplots(2, 1, figsize=(14, 10), height_ratios=[1.2, 1])
         fig.suptitle(
-            "Simons' Heir: GameStop Simulation Analysis",
+            "KalSim: GameStop Simulation Analysis",
             fontsize=16,
             fontweight="bold",
         )
@@ -225,6 +243,7 @@ def plot_price_sentiment_correlation(
     Returns:
         Path to saved plot.
     """
+    _ensure_safe_backend(show_plot=False)
     output_path = output_path or RESULTS_DIR / "price_sentiment_correlation.png"
     
     fig, ax1 = plt.subplots(figsize=(14, 6))
@@ -316,7 +335,7 @@ def generate_summary_report(
     
     report_lines = [
         "=" * 60,
-        "SIMONS' HEIR - SIMULATION ANALYSIS REPORT",
+        "KALSIM - SIMULATION ANALYSIS REPORT",
         "=" * 60,
         "",
         "OVERVIEW",

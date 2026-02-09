@@ -6,6 +6,7 @@ Manages the main simulation loop and agent interactions.
 import json
 import logging
 import random
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,7 @@ class Simulation:
     
     BASE_PRICE: float = 20.0
     START_DATE: datetime = datetime(2021, 1, 11, 9, 0)
+    _KALSHI_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{1,63}$")
     
     def __init__(
         self,
@@ -57,10 +59,12 @@ class Simulation:
         agent_count: int = AGENTS_COUNT,
         persona_file: Path = PERSONA_FILE,
         tweets_file: Path = TWEETS_FILE,
+        output_log_file: Path | None = None,
         mock_llm: bool = False,
         custom_agents: list[dict[str, Any]] | None = None,
         use_kalshi: bool = False,
         market_topic: str | None = None,
+        random_seed: int | None = None,
         llm_provider: LLMInterfaceABC | None = None,
         market_provider: MarketDataProviderABC | None = None,
         user_pool_provider: UserPoolProviderABC | None = None,
@@ -72,10 +76,12 @@ class Simulation:
             agent_count: Number of agents to create.
             persona_file: Path to persona JSON file (deprecated).
             tweets_file: Path to tweets CSV file (deprecated).
+            output_log_file: Optional output log destination.
             mock_llm: Whether to run in mock mode.
             custom_agents: Optional personas to use instead of file/defaults.
             use_kalshi: Whether to use real Kalshi market data.
             market_topic: The market topic to simulate discussions about.
+            random_seed: Optional random seed for reproducible runs.
             llm_provider: Optional LLM interface (for dependency injection).
             market_provider: Optional market data provider (for dependency injection).
             user_pool_provider: Optional user pool provider (for dependency injection).
@@ -86,10 +92,16 @@ class Simulation:
         self.agent_count = agent_count
         self.persona_file = persona_file
         self.tweets_file = tweets_file
+        self.output_log_file = output_log_file or SIMULATION_LOG_FILE
         self.mock_llm = mock_llm
         self.custom_agents = custom_agents or []
         self.use_kalshi = use_kalshi or not mock_llm
         self.market_topic = market_topic or "prediction markets"
+        self.random_seed = random_seed
+
+        if self.random_seed is not None:
+            random.seed(self.random_seed)
+            logger.info("Simulation random seed set to %s", self.random_seed)
         
         self.agents: list[Agent] = []
         self.llm: LLMInterfaceABC | None = llm_provider
@@ -114,7 +126,8 @@ class Simulation:
         
         logger.info(
             f"Simulation initialized: {days} days, {agent_count} agents, "
-            f"mock_llm={mock_llm}, use_kalshi={self.use_kalshi}"
+            f"mock_llm={mock_llm}, use_kalshi={self.use_kalshi}, "
+            f"output_log_file={self.output_log_file}"
         )
     
     def setup(self) -> None:
@@ -201,7 +214,12 @@ class Simulation:
             action = agent.act(decision)
             step_actions.append(action)
             
-            self.simulation_log.append(action.to_dict())
+            action_dict = action.to_dict()
+            action_dict.setdefault("metadata", {})
+            action_dict["metadata"]["market_snapshot"] = self._build_market_snapshot(
+                market_info
+            )
+            self.simulation_log.append(action_dict)
         
         self._update_community_sentiment(step_actions)
     
@@ -230,10 +248,11 @@ class Simulation:
                 logger.debug("No markets returned from Kalshi API, using formula")
                 return False
             
-            target_market = next(
-                (m for m in markets if m.get("ticker") == self.market_topic),
-                None
-            )
+            target_market = self._find_market_from_list(markets)
+            
+            # Fallback: Try fetching specific market directly
+            if not target_market and self.market_topic:
+                target_market = self._try_fetch_market_by_ticker()
             
             if not target_market:
                 logger.debug(
@@ -242,11 +261,21 @@ class Simulation:
                 )
                 return False
             
-            yes_price = target_market.get("yes_price")
-            if yes_price is None:
+            # Determine price (handle different API response formats)
+            price = None
+            if "yes_price" in target_market:
+                # Usually float 0.0-1.0
+                price = target_market["yes_price"] * 100
+            elif "last_price" in target_market:
+                # Usually int 1-99
+                price = float(target_market["last_price"])
+            elif "yes_ask" in target_market:
+                price = float(target_market["yes_ask"])
+            
+            if price is None:
                 return False
             
-            self._current_price = yes_price * 100
+            self._current_price = price
             self._current_volume = target_market.get("volume_24h", 0)
             self._price_history.append(self._current_price)
             
@@ -260,6 +289,56 @@ class Simulation:
         except Exception as e:
             logger.warning("Live market update failed: %s", e)
             return False
+
+    def _find_market_from_list(self, markets: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Find the best matching market from a fetched market list."""
+        if not self.market_topic:
+            return None
+
+        market_topic = self.market_topic.strip()
+        ticker_candidate = market_topic.upper()
+        title_candidate = market_topic.casefold()
+
+        # Prefer exact ticker match first.
+        ticker_match = next(
+            (
+                market
+                for market in markets
+                if str(market.get("ticker", "")).strip().upper() == ticker_candidate
+            ),
+            None,
+        )
+        if ticker_match:
+            return ticker_match
+
+        # If the topic is a human-readable title, match that before API fallback.
+        return next(
+            (
+                market
+                for market in markets
+                if str(market.get("title", "")).strip().casefold() == title_candidate
+            ),
+            None,
+        )
+
+    def _try_fetch_market_by_ticker(self) -> dict[str, Any] | None:
+        """Fetch a market directly only when topic looks like a ticker."""
+        if not self.market_topic:
+            return None
+
+        candidate = self.market_topic.strip().upper()
+        if not self._KALSHI_TICKER_RE.match(candidate):
+            logger.debug(
+                "Skipping direct Kalshi fetch for non-ticker market topic: %s",
+                self.market_topic,
+            )
+            return None
+
+        get_market = getattr(self._kalshi_client, "get_market", None)
+        if not callable(get_market):
+            return None
+
+        return get_market(candidate)
 
     def _update_market_state_formula(self, step: int) -> None:
         """Update market state using formula-based model.
@@ -391,23 +470,34 @@ class Simulation:
         
         self._community_sentiment *= 0.95
         self._community_sentiment = max(-1.0, min(1.0, self._community_sentiment))
+
+    @staticmethod
+    def _build_market_snapshot(market_info: MarketInfo) -> dict[str, Any]:
+        """Build a compact market snapshot for action metadata."""
+        return {
+            "price": market_info.stock_price,
+            "trend": market_info.trend,
+            "volume": market_info.volume,
+            "price_change_pct": market_info.price_change_pct,
+            "timestamp": market_info.timestamp.isoformat(),
+        }
     
     def _load_personas(self) -> list[dict[str, Any]]:
-        """Load personas with priority chain: SocioVerse > custom > Kalshi-generated > file > defaults.
+        """Load personas with priority chain: custom > SocioVerse > Kalshi > defaults.
         
         Returns:
             List of persona dictionaries.
         """
-        # Priority 1: Try SocioVerse dataset (real user data) - HIGHEST PRIORITY
+        # Priority 1: Custom agents provided via API request
+        if self.custom_agents:
+            logger.info(f"Using {len(self.custom_agents)} custom agents from request")
+            return self.custom_agents
+
+        # Priority 2: Try SocioVerse dataset (real user data)
         if self.use_kalshi:
             personas = self._try_load_socioverse()
             if personas:
                 return personas
-        
-        # Priority 2: Custom agents provided via API request
-        if self.custom_agents:
-            logger.info(f"Using {len(self.custom_agents)} custom agents from request")
-            return self.custom_agents
         
         # Priority 3: Generate personas from Kalshi trends using LLM
         if self.use_kalshi and self._kalshi_analysis:
@@ -615,9 +705,9 @@ class Simulation:
         }
         
         try:
-            with open(SIMULATION_LOG_FILE, "w", encoding="utf-8") as f:
+            with open(self.output_log_file, "w", encoding="utf-8") as f:
                 json.dump(output_data, f, indent=2, ensure_ascii=False)
-            logger.info(f"Results saved to {SIMULATION_LOG_FILE}")
+            logger.info("Results saved to %s", self.output_log_file)
         except IOError as e:
             logger.error(f"Failed to save results: {e}")
             raise SimulationError(f"Failed to save results: {e}") from e
