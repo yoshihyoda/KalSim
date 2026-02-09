@@ -4,6 +4,7 @@ Fetches real user personas from the SocioVerse dataset on HuggingFace.
 Reference: https://huggingface.co/datasets/Lishi0905/SocioVerse
 """
 
+import json
 import logging
 import os
 import random
@@ -14,6 +15,7 @@ from typing import Any
 from .interfaces import UserPoolProviderABC
 
 logger = logging.getLogger(__name__)
+compliance_logger = logging.getLogger("kalsim.compliance")
 
 
 class SocioVerseConnector(UserPoolProviderABC):
@@ -28,14 +30,27 @@ class SocioVerseConnector(UserPoolProviderABC):
 
     DATASET_NAME = "Lishi0905/SocioVerse"
     DATA_FILE = "user_pool_X.json"
+    TERMS_URL = "https://huggingface.co/datasets/Lishi0905/SocioVerse"
+    RESEARCH_MODE_ENV = "KALSIM_RESEARCH_MODE"
+    _TRUTHY = {"1", "true", "yes", "on"}
 
-    def __init__(self, hf_token: str | None = None) -> None:
+    def __init__(
+        self,
+        hf_token: str | None = None,
+        research_mode: bool | None = None,
+    ) -> None:
         """Initialize the SocioVerseConnector.
         
         Args:
             hf_token: HuggingFace token. If None, reads from HF_TOKEN env var.
+            research_mode:
+                If provided, explicitly controls research-only access guard.
+                If None, reads from KALSIM_RESEARCH_MODE environment variable.
         """
         self.hf_token = hf_token or os.environ.get("HF_TOKEN")
+        self.research_mode = (
+            research_mode if research_mode is not None else self._read_research_mode_flag()
+        )
         self._dataset = None
 
     def fetch_user_pool(self, count: int = 100) -> list[dict[str, Any]]:
@@ -47,10 +62,23 @@ class SocioVerseConnector(UserPoolProviderABC):
         Returns:
             List of persona dictionaries in simulation-compatible format.
         """
+        if not self.research_mode:
+            logger.warning(
+                "SocioVerse access blocked: %s must be enabled for research-only use.",
+                self.RESEARCH_MODE_ENV,
+            )
+            self._audit(
+                "socioverse_access_blocked",
+                reason="research_mode_disabled",
+                requested_count=count,
+            )
+            return []
+
         try:
             from datasets import load_dataset
             
             logger.info(f"Fetching {count} users from SocioVerse dataset...")
+            self._audit("socioverse_access_attempt", requested_count=count)
 
             dataset = self._load_dataset_with_fallback(load_dataset, count=count)
             
@@ -62,16 +90,26 @@ class SocioVerseConnector(UserPoolProviderABC):
             ]
             
             logger.info(f"Successfully fetched {len(personas)} users from SocioVerse")
+            self._audit("socioverse_access_success", loaded_count=len(personas))
+            logger.info(
+                "SocioVerse compliance note: use this dataset for research experiments only. "
+                "For X data, text content must be retrieved via the official X API."
+            )
             return personas
 
         except ImportError:
             logger.error("datasets library not installed. Run: pip install datasets")
+            self._audit("socioverse_access_failed", error_type="ImportError")
             return []
         except Exception as e:
             logger.error(f"Failed to fetch from SocioVerse: {e}")
             hint = self._build_access_hint(e)
             if hint:
                 logger.error(hint)
+            self._audit(
+                "socioverse_access_failed",
+                error_type=type(e).__name__,
+            )
             return []
 
     def _load_dataset_with_fallback(self, load_dataset: Any, count: int) -> Any:
@@ -80,12 +118,18 @@ class SocioVerseConnector(UserPoolProviderABC):
 
         # Preferred path: explicit data file.
         try:
-            return load_dataset(
+            dataset = load_dataset(
                 self.DATASET_NAME,
                 data_files=self.DATA_FILE,
                 split=split,
                 token=self.hf_token,
             )
+            self._audit(
+                "socioverse_dataset_load",
+                source="data_files",
+                config=f"default-data_files={self.DATA_FILE}",
+            )
+            return dataset
         except Exception as data_file_error:
             logger.warning(
                 "SocioVerse load with data file '%s' failed, trying default config: %s",
@@ -95,11 +139,16 @@ class SocioVerseConnector(UserPoolProviderABC):
 
             # Fallback path: default config often maps to local cache keys.
             try:
-                return load_dataset(
+                dataset = load_dataset(
                     self.DATASET_NAME,
                     split=split,
                     token=self.hf_token,
                 )
+                self._audit(
+                    "socioverse_dataset_load",
+                    source="default",
+                )
+                return dataset
             except Exception as default_error:
                 logger.warning(
                     "SocioVerse default config load failed, trying cached configs: %s",
@@ -114,12 +163,18 @@ class SocioVerseConnector(UserPoolProviderABC):
                             "Trying cached SocioVerse config: %s",
                             config_name,
                         )
-                        return load_dataset(
+                        dataset = load_dataset(
                             self.DATASET_NAME,
                             config_name,
                             split=split,
                             token=self.hf_token,
                         )
+                        self._audit(
+                            "socioverse_dataset_load",
+                            source="cached_config",
+                            config=config_name,
+                        )
+                        return dataset
                     except Exception as cached_error:
                         logger.debug(
                             "Cached config '%s' failed: %s",
@@ -161,8 +216,7 @@ class SocioVerseConnector(UserPoolProviderABC):
 
         if any(token in message for token in ["401", "403", "access denied", "gated"]):
             return (
-                "Ensure you have accepted the dataset terms at: "
-                "https://huggingface.co/datasets/Lishi0905/SocioVerse"
+                f"Ensure you accepted the dataset terms at: {SocioVerseConnector.TERMS_URL}"
             )
 
         if "couldn't be found on the hugging face hub" in message:
@@ -172,6 +226,22 @@ class SocioVerseConnector(UserPoolProviderABC):
             )
 
         return None
+
+    @classmethod
+    def _read_research_mode_flag(cls) -> bool:
+        """Read research mode guard from environment."""
+        raw = os.environ.get(cls.RESEARCH_MODE_ENV, "")
+        return raw.strip().lower() in cls._TRUTHY
+
+    def _audit(self, event: str, **fields: Any) -> None:
+        """Emit compliance audit logs for SocioVerse access."""
+        payload = {
+            "event": event,
+            "dataset": self.DATASET_NAME,
+            "research_mode": self.research_mode,
+            **fields,
+        }
+        compliance_logger.info("socioverse_audit %s", json.dumps(payload, sort_keys=True))
 
     def _transform_user(self, idx: int, user: dict[str, Any]) -> dict[str, Any]:
         """Transform SocioVerse user schema to simulation persona schema.
@@ -346,6 +416,9 @@ class SocioVerseConnector(UserPoolProviderABC):
         Returns:
             True if dataset can be accessed, False otherwise.
         """
+        if not self.research_mode:
+            return False
+
         try:
             from datasets import load_dataset
 

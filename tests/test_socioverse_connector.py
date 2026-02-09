@@ -170,7 +170,7 @@ class TestSocioVerseConnector:
         mock_datasets = MagicMock()
         mock_datasets.load_dataset = MagicMock(return_value=mock_dataset)
         
-        connector = SocioVerseConnector(hf_token="test_token")
+        connector = SocioVerseConnector(hf_token="test_token", research_mode=True)
         
         with patch.dict("sys.modules", {"datasets": mock_datasets}):
             personas = connector.fetch_user_pool(count=2)
@@ -184,7 +184,7 @@ class TestSocioVerseConnector:
         mock_datasets = MagicMock()
         mock_datasets.load_dataset = MagicMock(side_effect=Exception("Access denied"))
         
-        connector = SocioVerseConnector()
+        connector = SocioVerseConnector(research_mode=True)
         
         with patch.dict("sys.modules", {"datasets": mock_datasets}):
             personas = connector.fetch_user_pool(count=10)
@@ -203,7 +203,7 @@ class TestSocioVerseConnector:
         mock_datasets = MagicMock()
         mock_datasets.load_dataset = MagicMock(side_effect=[first_error, mock_dataset])
 
-        connector = SocioVerseConnector(hf_token="test_token")
+        connector = SocioVerseConnector(hf_token="test_token", research_mode=True)
 
         with patch.dict("sys.modules", {"datasets": mock_datasets}):
             personas = connector.fetch_user_pool(count=1)
@@ -231,7 +231,7 @@ class TestSocioVerseConnector:
             side_effect=[cache_error, default_error, mock_dataset]
         )
 
-        connector = SocioVerseConnector(hf_token="test_token")
+        connector = SocioVerseConnector(hf_token="test_token", research_mode=True)
 
         with patch.dict("sys.modules", {"datasets": mock_datasets}):
             personas = connector.fetch_user_pool(count=1)
@@ -244,9 +244,22 @@ class TestSocioVerseConnector:
 
     def test_fetch_user_pool_no_datasets_library(self):
         """Test handling when datasets library not installed."""
-        connector = SocioVerseConnector()
+        connector = SocioVerseConnector(research_mode=True)
         
         with patch.dict("sys.modules", {"datasets": None}):
             with patch("builtins.__import__", side_effect=ImportError("No module")):
                 personas = connector.fetch_user_pool(count=5)
                 assert personas == []
+
+    def test_fetch_user_pool_blocked_when_research_mode_disabled(self):
+        """SocioVerse should be blocked when research mode is disabled."""
+        mock_datasets = MagicMock()
+        mock_datasets.load_dataset = MagicMock()
+
+        connector = SocioVerseConnector(research_mode=False)
+
+        with patch.dict("sys.modules", {"datasets": mock_datasets}):
+            personas = connector.fetch_user_pool(count=5)
+
+        assert personas == []
+        mock_datasets.load_dataset.assert_not_called()

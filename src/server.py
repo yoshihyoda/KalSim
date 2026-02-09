@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 from typing import Any
 
@@ -26,6 +27,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 logger = logging.getLogger("kalsim_server")
+compliance_logger = logging.getLogger("kalsim.compliance")
 
 
 class SimulationState:
@@ -107,7 +109,7 @@ class KalshiAnalysisResponse(BaseModel):
 
 class KalshiAgentsRequest(BaseModel):
     event_ticker: str
-    count: int = 5
+    count: int = Field(default=5, ge=1, le=100)
 
 
 class KalshiAgentsResponse(BaseModel):
@@ -115,6 +117,27 @@ class KalshiAgentsResponse(BaseModel):
     event_title: str | None = None
     summary: str | None = None
     agents: list[AgentPersona]
+
+
+RESTRICTED_AGENT_CONTENT_FIELDS = {
+    "text",
+    "tweet",
+    "tweets",
+    "post",
+    "posts",
+    "body",
+    "timeline",
+    "message",
+    "messages",
+}
+
+
+def _is_restricted_agent_field(field_name: str) -> bool:
+    """Return True when field name suggests raw social content."""
+    # Normalize snake_case/kebab-case/camelCase to token-like segments.
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", field_name)
+    tokens = [tok for tok in normalized.replace("-", "_").lower().split("_") if tok]
+    return any(token in RESTRICTED_AGENT_CONTENT_FIELDS for token in tokens)
 
 
 def _normalize_agent_payload(agent: dict[str, Any], index: int) -> dict[str, Any]:
@@ -129,6 +152,18 @@ def _normalize_agent_payload(agent: dict[str, Any], index: int) -> dict[str, Any
         normalized["name"] = f"Agent_{index}"
     else:
         normalized["name"] = str(name)
+
+    dropped_fields = [
+        key for key in list(normalized.keys()) if _is_restricted_agent_field(key)
+    ]
+    for key in dropped_fields:
+        normalized.pop(key, None)
+
+    if dropped_fields:
+        compliance_logger.warning(
+            "Dropped restricted content fields from agent payload: %s",
+            ", ".join(sorted(dropped_fields)),
+        )
 
     return normalized
 

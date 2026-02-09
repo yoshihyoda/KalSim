@@ -1,5 +1,8 @@
 """Tests for server state endpoint calculations."""
 
+import pytest
+from pydantic import ValidationError
+
 from src import server
 from src.config import STEPS_PER_DAY
 
@@ -79,3 +82,32 @@ def test_validate_agent_personas_fills_blank_name():
     personas = server._validate_agent_personas(raw_agents)
 
     assert personas[0].name == "Agent_0"
+
+
+def test_validate_agent_personas_drops_restricted_content_fields():
+    """Agent payloads should not include raw social text fields."""
+    raw_agents = [
+        {
+            "id": 1,
+            "name": "AgentX",
+            "tweet_text": "raw content",
+            "posts": ["x", "y"],
+            "personality_traits": ["calm"],
+        }
+    ]
+
+    personas = server._validate_agent_personas(raw_agents)
+    payload = personas[0].model_dump(exclude_none=True)
+
+    assert "tweet_text" not in payload
+    assert "posts" not in payload
+    assert payload["name"] == "AgentX"
+
+
+def test_kalshi_agents_request_validates_count_bounds():
+    """Agent generation count should be constrained to safe bounds."""
+    with pytest.raises(ValidationError):
+        server.KalshiAgentsRequest(event_ticker="TEST", count=0)
+
+    with pytest.raises(ValidationError):
+        server.KalshiAgentsRequest(event_ticker="TEST", count=101)
