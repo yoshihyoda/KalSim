@@ -161,22 +161,6 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for full workflow.
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 
-## Roadmap
-
-Short-term:
-- Stabilize public API contracts
-- Strengthen type safety and schema validation
-- Improve deterministic simulation options and reproducibility
-
-Mid-term:
-- Add authentication and role-based API access
-- Add packaged benchmark scenarios
-- Add deployment reference architecture
-
-Long-term:
-- Pluggable strategy ecosystem for agent behavior and data providers
-- Multi-market simulation orchestration
-
 ## License
 
 Licensed under Apache License 2.0. See [LICENSE](LICENSE).
